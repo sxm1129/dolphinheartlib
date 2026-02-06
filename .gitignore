@@ -1,0 +1,67 @@
+# ---- Python cache & build ----
+__pycache__/
+**.pyc
+**.pyo
+**.pyd
+*.so
+**.egg-info/
+build/
+dist/
+*.egg
+*.whl
+
+# ---- IDE / OS ----
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ---- Virtual env ----
+.venv/
+venv/
+env/
+.envrc
+.python-version
+
+# ---- Logs & temp ----
+*.log
+logs/
+tmp/
+temp/
+.cache/
+.ruff_cache/
+.mypy_cache/
+.pytest_cache/
+
+# ---- Test / coverage ----
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# ---- Project-specific outputs ----
+checkpoint/
+ckpt/
+output/
+**.wav
+**.mp3
+
+# ---- Backend DB / artifacts ----
+server/*.db
+server/*.sqlite3
+server/__pycache__/
+
+# ---- Frontend Node / build ----
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/.cache/
+frontend/*.local.*
+
+# ---- Environment / secrets ----
+.env
+.env.*
+*.secret
+*.key
