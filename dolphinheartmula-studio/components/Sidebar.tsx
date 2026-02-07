@@ -68,9 +68,13 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
             <span className="text-sm font-medium">{t('nav.audioLab')}</span>
           </div>
 
-          <div className={navItemClass(false)}>
-            <Heart className="w-5 h-5 group-hover:text-primary" />
+          <div
+            className={`${navItemClass(false)} opacity-60 cursor-not-allowed`}
+            title={t('lib.comingSoon')}
+          >
+            <Heart className="w-5 h-5" />
             <span className="text-sm font-medium">{t('nav.favorites')}</span>
+            <span className="text-[10px] text-slate-500 ml-auto">({t('lib.comingSoon')})</span>
           </div>
         </nav>
       </div>

@@ -31,7 +31,18 @@ From repo root:
 
 ```bash
 conda activate heartlib_env
-uvicorn server.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn server.main:app --reload --host 0.0.0.0 --port 10010
 ```
 
-API will be at `http://localhost:8000`. Docs at `http://localhost:8000/docs`.
+API will be at `http://localhost:10010`. Docs at `http://localhost:10010/docs`.
+
+## Tests
+
+From repo root, install dev deps and run server tests:
+
+```bash
+pip install -r server/requirements-dev.txt
+python -m pytest server/tests -v
+```
+
+Tests cover `GET /api/models` (filtering hidden dirs, default list) and `POST /api/tasks/generate` / `GET /api/tasks` (project_id, version, ref_file_id). Fixtures in `conftest.py` use a temporary SQLite DB and no-op enqueue. See `server/tests/` and `docs/studio_flows.md` §五.

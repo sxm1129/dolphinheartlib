@@ -1,7 +1,7 @@
-import { Project, GenConfig } from '../types';
+import { Project } from '../types';
 
-// API Base URL - configure via environment variable or default to local
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:10010/api';
+// API Base URL - configure via environment variable or default to local (strip trailing slash to avoid double slashes)
+const API_BASE = (import.meta.env.VITE_API_BASE || 'http://localhost:10001/api').replace(/\/+$/, '');
 
 // ==================== Project API ====================
 
@@ -35,8 +35,8 @@ export const fetchProjects = async (params?: {
   status?: string;
 }): Promise<ProjectListResponse> => {
   const searchParams = new URLSearchParams();
-  if (params?.page) searchParams.set('page', String(params.page));
-  if (params?.page_size) searchParams.set('page_size', String(params.page_size));
+  if (params?.page != null) searchParams.set('page', String(params.page));
+  if (params?.page_size != null) searchParams.set('page_size', String(params.page_size));
   if (params?.search) searchParams.set('search', params.search);
   if (params?.genre) searchParams.set('genre', params.genre);
   if (params?.status) searchParams.set('status', params.status);
@@ -46,7 +46,7 @@ export const fetchProjects = async (params?: {
   
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`Failed to fetch projects: ${response.statusText}`);
+    throw new Error(`Failed to fetch projects: ${response.status} ${response.statusText}`);
   }
   return response.json();
 };
@@ -54,7 +54,7 @@ export const fetchProjects = async (params?: {
 export const getProject = async (id: string): Promise<Project> => {
   const response = await fetch(`${API_BASE}/projects/${id}`);
   if (!response.ok) {
-    throw new Error(`Failed to get project: ${response.statusText}`);
+    throw new Error(`Failed to get project: ${response.status} ${response.statusText}`);
   }
   return response.json();
 };
@@ -66,7 +66,7 @@ export const createProject = async (data: ProjectCreateRequest): Promise<Project
     body: JSON.stringify(data),
   });
   if (!response.ok) {
-    throw new Error(`Failed to create project: ${response.statusText}`);
+    throw new Error(`Failed to create project: ${response.status} ${response.statusText}`);
   }
   return response.json();
 };
@@ -78,7 +78,7 @@ export const updateProject = async (id: string, data: ProjectUpdateRequest): Pro
     body: JSON.stringify(data),
   });
   if (!response.ok) {
-    throw new Error(`Failed to update project: ${response.statusText}`);
+    throw new Error(`Failed to update project: ${response.status} ${response.statusText}`);
   }
   return response.json();
 };
@@ -88,7 +88,7 @@ export const deleteProject = async (id: string): Promise<void> => {
     method: 'DELETE',
   });
   if (!response.ok) {
-    throw new Error(`Failed to delete project: ${response.statusText}`);
+    throw new Error(`Failed to delete project: ${response.status} ${response.statusText}`);
   }
 };
 
@@ -104,6 +104,7 @@ export interface TaskResponse {
   output_audio_path: string | null;
   result: unknown;
   error_message: string | null;
+  project_id?: string | null;
 }
 
 export interface GeneratePayload {
@@ -114,6 +115,8 @@ export interface GeneratePayload {
   temperature?: number;
   cfg_scale?: number;
   version?: string;
+  project_id?: string | null;
+  ref_file_id?: string | null;
 }
 
 export const generateAudio = async (payload: GeneratePayload): Promise<{ task_id: string }> => {
@@ -125,6 +128,30 @@ export const generateAudio = async (payload: GeneratePayload): Promise<{ task_id
   if (!response.ok) {
     throw new Error(`Failed to create generate task: ${response.statusText}`);
   }
+  return response.json();
+};
+
+export interface TaskListResponse {
+  items: TaskResponse[];
+  total: number;
+}
+
+export const getTasks = async (params?: {
+  page?: number;
+  page_size?: number;
+  status?: string;
+  type?: string;
+  project_id?: string;
+}): Promise<TaskListResponse> => {
+  const searchParams = new URLSearchParams();
+  if (params?.page != null) searchParams.set('page', String(params.page));
+  if (params?.page_size != null) searchParams.set('page_size', String(params.page_size));
+  if (params?.status) searchParams.set('status', params.status);
+  if (params?.type) searchParams.set('type', params.type);
+  if (params?.project_id) searchParams.set('project_id', params.project_id);
+  const query = searchParams.toString();
+  const response = await fetch(`${API_BASE}/tasks${query ? `?${query}` : ''}`);
+  if (!response.ok) throw new Error(`Failed to fetch tasks: ${response.statusText}`);
   return response.json();
 };
 
@@ -166,14 +193,22 @@ export const pollTaskStatus = async (
 
 // ==================== Model API ====================
 
+const DEFAULT_MODELS = [
+  'HeartMula-Pro-4B (v2.1)',
+  'HeartMula-Fast-2B',
+  'HeartCodec-Studio-HQ',
+  'HeartMula-3B (Standard)',
+];
+
 export const getModelList = async (): Promise<string[]> => {
-  // TODO: Implement actual model list API when available
-  return [
-    'HeartMula-Pro-4B (v2.1)',
-    'HeartMula-Fast-2B',
-    'HeartCodec-Studio-HQ',
-    'HeartMula-3B (Standard)'
-  ];
+  try {
+    const response = await fetch(`${API_BASE}/models`);
+    if (!response.ok) return DEFAULT_MODELS;
+    const list = await response.json();
+    return Array.isArray(list) && list.length > 0 ? list : DEFAULT_MODELS;
+  } catch {
+    return DEFAULT_MODELS;
+  }
 };
 
 // ==================== File Upload API ====================

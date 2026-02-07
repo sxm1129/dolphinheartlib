@@ -46,6 +46,7 @@ def _task_to_response(task) -> TaskResponse:
         output_audio_path=task.output_audio_path,
         result=result,
         error_message=task.error_message,
+        project_id=getattr(task, "project_id", None),
     )
 
 
@@ -60,7 +61,9 @@ def post_generate(body: GenerateRequest):
         "cfg_scale": body.cfg_scale,
         "version": body.version,
     }
-    task_id = create_task("generate", params)
+    if body.ref_file_id is not None:
+        params["ref_file_id"] = body.ref_file_id
+    task_id = create_task("generate", params, project_id=body.project_id)
     enqueue(task_id)
     return TaskCreateResponse(task_id=task_id)
 
@@ -113,8 +116,15 @@ def get_tasks(
     page_size: int = 20,
     status: Optional[str] = None,
     type: Optional[str] = None,
+    project_id: Optional[str] = None,
 ):
-    items, total = list_tasks(page=page, page_size=page_size, status=status, task_type=type)
+    items, total = list_tasks(
+        page=page,
+        page_size=page_size,
+        status=status,
+        task_type=type,
+        project_id=project_id,
+    )
     return TaskListResponse(
         items=[_task_to_response(t) for t in items],
         total=total,

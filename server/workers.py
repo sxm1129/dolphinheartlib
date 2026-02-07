@@ -6,6 +6,7 @@ from pathlib import Path
 import torch
 
 from server.config import HEARTMULA_VERSION, MODEL_PATH, OUTPUT_DIR
+from server.routes.uploads import UPLOAD_DIR, ALLOWED_EXTENSIONS
 from server.store import (
     STATUS_COMPLETED,
     STATUS_FAILED,
@@ -19,7 +20,10 @@ def _task_dir(task_id: str) -> Path:
 
 
 def run_generate_task(task_id: str) -> None:
-    """Load HeartMuLaGenPipeline, run with task params, save audio to output/{task_id}/audio.mp3."""
+    """Load HeartMuLaGenPipeline, run with task params, save audio to output/{task_id}/audio.mp3.
+    Reference audio (ref_file_id) is used only when the pipeline supports ref_audio_path;
+    otherwise generation runs without it (TypeError is caught and retried without ref).
+    """
     task = get_task(task_id)
     if not task or task.status != "pending":
         return
@@ -28,25 +32,65 @@ def run_generate_task(task_id: str) -> None:
     out_dir.mkdir(parents=True, exist_ok=True)
     save_path = str(out_dir / "audio.mp3")
     params = task.params if isinstance(task.params, dict) else json.loads(task.params)
+    ref_audio_path = None
+    ref_file_id = params.get("ref_file_id")
+    if ref_file_id:
+        for ext in ALLOWED_EXTENSIONS:
+            p = UPLOAD_DIR / f"{ref_file_id}{ext}"
+            if p.is_file():
+                ref_audio_path = str(p)
+                break
     try:
         from heartlib import HeartMuLaGenPipeline
 
+        raw_version = (params.get("version") or HEARTMULA_VERSION or "").strip()
+        version_lower = raw_version.lower()
+        prefix = "heartmula-oss-"
+        if version_lower.startswith(prefix):
+            version = raw_version[len(prefix):]
+        else:
+            version = raw_version
         pipe = HeartMuLaGenPipeline.from_pretrained(
             MODEL_PATH,
             device={"mula": torch.device("cuda"), "codec": torch.device("cuda")},
             dtype={"mula": torch.bfloat16, "codec": torch.float32},
-            version=params.get("version", HEARTMULA_VERSION),
+            version=version,
             lazy_load=True,
         )
         with torch.no_grad():
-            pipe(
-                {"lyrics": params["lyrics"], "tags": params["tags"]},
-                max_audio_length_ms=params.get("max_audio_length_ms", 240_000),
-                save_path=save_path,
-                topk=params.get("topk", 50),
-                temperature=params.get("temperature", 1.0),
-                cfg_scale=params.get("cfg_scale", 1.5),
-            )
+            call_kw: dict = {
+                "lyrics": params["lyrics"],
+                "tags": params["tags"],
+            }
+            if ref_audio_path and hasattr(pipe, "__call__"):
+                try:
+                    pipe(
+                        call_kw,
+                        max_audio_length_ms=params.get("max_audio_length_ms", 240_000),
+                        save_path=save_path,
+                        topk=params.get("topk", 50),
+                        temperature=params.get("temperature", 1.0),
+                        cfg_scale=params.get("cfg_scale", 1.5),
+                        ref_audio_path=ref_audio_path,
+                    )
+                except TypeError:
+                    pipe(
+                        call_kw,
+                        max_audio_length_ms=params.get("max_audio_length_ms", 240_000),
+                        save_path=save_path,
+                        topk=params.get("topk", 50),
+                        temperature=params.get("temperature", 1.0),
+                        cfg_scale=params.get("cfg_scale", 1.5),
+                    )
+            else:
+                pipe(
+                    call_kw,
+                    max_audio_length_ms=params.get("max_audio_length_ms", 240_000),
+                    save_path=save_path,
+                    topk=params.get("topk", 50),
+                    temperature=params.get("temperature", 1.0),
+                    cfg_scale=params.get("cfg_scale", 1.5),
+                )
         rel_path = f"{task_id}/audio.mp3"
         update_task(task_id, status=STATUS_COMPLETED, output_audio_path=rel_path)
     except Exception as e:

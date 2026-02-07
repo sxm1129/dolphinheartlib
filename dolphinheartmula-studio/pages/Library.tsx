@@ -1,11 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState, useRef } from 'react';
 import { Project } from '../types';
-import { fetchProjects, createProject, deleteProject, ProjectListResponse } from '../services/api';
+import { ViewMode } from '../types';
+import { fetchProjects, createProject, deleteProject, updateProject, ProjectListResponse } from '../services/api';
+import { useProject } from '../contexts/ProjectContext';
 import WaveformViz from '../components/WaveformViz';
-import { Play, MoreVertical, Search, Calendar, Filter, Grid, List, Trash2, Plus, X, Loader2 } from 'lucide-react';
+import { Play, MoreVertical, Search, Calendar, Grid, List, Trash2, Plus, X, Loader2, Edit3 } from 'lucide-react';
 import { useTranslation } from '../contexts/LanguageContext';
 
-const Library: React.FC = () => {
+interface LibraryProps {
+  setCurrentView: (v: ViewMode) => void;
+}
+
+const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -14,33 +20,50 @@ const Library: React.FC = () => {
   const [newProjectTitle, setNewProjectTitle] = useState('');
   const [newProjectGenre, setNewProjectGenre] = useState('Electronic');
   const [creating, setCreating] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editProject, setEditProject] = useState<Project | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editGenre, setEditGenre] = useState('');
+  const [editTagsStr, setEditTagsStr] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [debouncedSearch, setDebouncedSearch] = useState(searchQuery);
+  const menuRef = useRef<HTMLDivElement>(null);
   const { t } = useTranslation();
+  const { currentProjectId, setCurrentProject } = useProject();
 
   const GENRES = ['Electronic', 'Pop', 'Rock', 'Hip Hop', 'R&B', 'Jazz', 'Ambient', 'Lo-Fi'];
 
-  const loadProjects = async () => {
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(searchQuery), 400);
+    return () => clearTimeout(id);
+  }, [searchQuery]);
+
+  const loadProjects = useCallback(async () => {
     try {
+      setErrorMessage(null);
       setLoading(true);
       const response: ProjectListResponse = await fetchProjects({
-        search: searchQuery || undefined,
+        search: debouncedSearch || undefined,
         genre: selectedGenre || undefined,
       });
-      // Normalize date field names
       const normalized = response.items.map(p => ({
         ...p,
         createdAt: p.created_at || p.createdAt || '',
+        tags: Array.isArray(p.tags) ? p.tags : (typeof p.tags === 'string' ? (() => { try { return JSON.parse(p.tags); } catch { return []; } })() : []),
       }));
       setProjects(normalized);
     } catch (error) {
       console.error('Failed to load projects:', error);
+      setErrorMessage(error instanceof Error ? error.message : '加载项目列表失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [debouncedSearch, selectedGenre]);
 
   useEffect(() => {
     loadProjects();
-  }, [searchQuery, selectedGenre]);
+  }, [loadProjects]);
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement>) => {
     setSearchQuery(e.target.value);
@@ -50,6 +73,7 @@ const Library: React.FC = () => {
     if (!newProjectTitle.trim()) return;
     
     setCreating(true);
+    setErrorMessage(null);
     try {
       await createProject({
         title: newProjectTitle,
@@ -61,21 +85,74 @@ const Library: React.FC = () => {
       loadProjects();
     } catch (error) {
       console.error('Failed to create project:', error);
+      setErrorMessage(error instanceof Error ? error.message : '创建项目失败');
     } finally {
       setCreating(false);
     }
   };
 
   const handleDeleteProject = async (id: string) => {
+    setOpenMenuId(null);
     if (!confirm('确定要删除这个项目吗？')) return;
     
+    setErrorMessage(null);
     try {
       await deleteProject(id);
+      if (id === currentProjectId) setCurrentProject(null);
       loadProjects();
     } catch (error) {
       console.error('Failed to delete project:', error);
+      setErrorMessage(error instanceof Error ? error.message : '删除项目失败');
     }
   };
+
+  const openInStudio = (project: Project) => {
+    setOpenMenuId(null);
+    setCurrentProject({ ...project, createdAt: project.createdAt || project.created_at || '' });
+    setCurrentView(ViewMode.STUDIO);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editProject) return;
+    setSaving(true);
+    setErrorMessage(null);
+    const tags = editTagsStr.split(',').map(s => s.trim()).filter(Boolean);
+    try {
+      await updateProject(editProject.id, { title: editTitle, genre: editGenre, tags });
+      if (editProject.id === currentProjectId) {
+        setCurrentProject({
+          ...editProject,
+          title: editTitle,
+          genre: editGenre,
+          tags,
+          createdAt: editProject.createdAt || editProject.created_at || '',
+        });
+      }
+      setEditProject(null);
+      loadProjects();
+    } catch (error) {
+      console.error('Failed to update project:', error);
+      setErrorMessage(error instanceof Error ? error.message : '更新项目失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const openEditModal = (project: Project) => {
+    setOpenMenuId(null);
+    setEditProject(project);
+    setEditTitle(project.title);
+    setEditGenre(project.genre || '');
+    setEditTagsStr((project.tags || []).join(', '));
+  };
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpenMenuId(null);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const formatDate = (dateStr?: string) => {
     if (!dateStr) return '';
@@ -113,6 +190,13 @@ const Library: React.FC = () => {
             {t('lib.new')}
           </button>
         </div>
+
+        {errorMessage && (
+          <div className="mb-4 flex items-center gap-2 px-4 py-2 bg-red-950/80 border border-red-900/50 rounded-lg text-sm text-red-300">
+            <span className="flex-1 min-w-0">{errorMessage}</span>
+            <button type="button" onClick={() => setErrorMessage(null)} className="text-red-400 hover:text-red-200 shrink-0 p-0.5" aria-label="关闭"><X className="w-4 h-4" /></button>
+          </div>
+        )}
 
         {/* Filters */}
         <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
@@ -162,12 +246,15 @@ const Library: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
             {projects.map((project) => (
               <div key={project.id} className="bg-[#1c1a2e]/70 backdrop-blur-md border border-slate-700/50 rounded-xl overflow-hidden group hover:border-primary/50 hover:shadow-[0_0_20px_rgba(168,85,247,0.15)] transition-all duration-300 relative flex flex-col">
-                {/* Visual Header */}
-                <div className={`h-40 relative p-4 flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800`}>
-                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 backdrop-blur-[1px] cursor-pointer">
-                      <button className="bg-primary text-white rounded-full p-3 shadow-lg hover:scale-110 transition-transform">
+                {/* Visual Header - click to open in Studio */}
+                <div
+                  className={`h-40 relative p-4 flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 cursor-pointer`}
+                  onClick={() => openInStudio(project)}
+                >
+                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 backdrop-blur-[1px]">
+                      <span className="bg-primary text-white rounded-full p-3 shadow-lg group-hover:scale-110 transition-transform inline-flex">
                         <Play className="w-8 h-8 fill-current pl-1" />
-                      </button>
+                      </span>
                    </div>
                    <WaveformViz color={project.color?.replace('bg-', 'bg-') || 'bg-primary'} />
                    
@@ -187,16 +274,26 @@ const Library: React.FC = () => {
                 <div className="p-4 flex-1 flex flex-col">
                    <div className="flex justify-between items-start mb-2">
                       <h3 className="text-white font-bold text-lg truncate pr-2 font-display">{project.title}</h3>
-                      <div className="flex gap-1">
-                        <button 
-                          onClick={() => handleDeleteProject(project.id)}
-                          className="text-slate-500 hover:text-red-400 transition-colors"
+                      <div className="flex gap-1 relative" ref={openMenuId === project.id ? menuRef : undefined}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(openMenuId === project.id ? null : project.id); }}
+                          className="text-slate-500 hover:text-white p-1 rounded"
                         >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                        <button className="text-slate-500 hover:text-white">
                           <MoreVertical className="w-5 h-5" />
                         </button>
+                        {openMenuId === project.id && (
+                          <div className="absolute right-0 top-full mt-1 py-1 w-44 bg-[#1c1a2e] border border-slate-700 rounded-lg shadow-xl z-50">
+                            <button onClick={() => openEditModal(project)} className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center gap-2">
+                              <Edit3 className="w-4 h-4" /> {t('lib.edit')}
+                            </button>
+                            <button onClick={() => openInStudio(project)} className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center gap-2">
+                              <Play className="w-4 h-4" /> {t('lib.openInStudio')}
+                            </button>
+                            <button onClick={() => handleDeleteProject(project.id)} className="w-full px-3 py-2 text-left text-sm text-red-400 hover:bg-slate-700/50 flex items-center gap-2">
+                              <Trash2 className="w-4 h-4" /> {t('lib.delete')}
+                            </button>
+                          </div>
+                        )}
                       </div>
                    </div>
                    
@@ -243,7 +340,7 @@ const Library: React.FC = () => {
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
           <div className="bg-[#1c1a2e] border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="text-xl font-bold text-white">新建项目</h3>
+              <h3 className="text-xl font-bold text-white">{t('lib.newProject')}</h3>
               <button 
                 onClick={() => setShowNewModal(false)}
                 className="text-slate-400 hover:text-white"
@@ -254,19 +351,19 @@ const Library: React.FC = () => {
             
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2">项目名称</label>
+                <label className="block text-sm font-medium text-slate-400 mb-2">{t('lib.projectName')}</label>
                 <input
                   type="text"
                   value={newProjectTitle}
                   onChange={(e) => setNewProjectTitle(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-primary focus:ring-1 focus:ring-primary outline-none"
-                  placeholder="输入项目名称..."
+                  placeholder={t('lib.projectNamePlaceholder')}
                   autoFocus
                 />
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-slate-400 mb-2">音乐类型</label>
+                <label className="block text-sm font-medium text-slate-400 mb-2">{t('lib.genre')}</label>
                 <select
                   value={newProjectGenre}
                   onChange={(e) => setNewProjectGenre(e.target.value)}
@@ -282,7 +379,7 @@ const Library: React.FC = () => {
                 onClick={() => setShowNewModal(false)}
                 className="flex-1 px-4 py-2.5 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
               >
-                取消
+                {t('lib.cancel')}
               </button>
               <button
                 onClick={handleCreateProject}
@@ -290,7 +387,69 @@ const Library: React.FC = () => {
                 className="flex-1 px-4 py-2.5 bg-primary hover:bg-primary-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 {creating && <Loader2 className="w-4 h-4 animate-spin" />}
-                创建
+                {t('lib.create')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit Project Modal */}
+      {editProject && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 backdrop-blur-sm">
+          <div className="bg-[#1c1a2e] border border-slate-700 rounded-xl p-6 w-full max-w-md shadow-2xl">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="text-xl font-bold text-white">{t('lib.editProject')}</h3>
+              <button onClick={() => setEditProject(null)} className="text-slate-400 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">{t('lib.projectName')}</label>
+                <input
+                  type="text"
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                  placeholder={t('lib.projectNamePlaceholder')}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">{t('lib.genre')}</label>
+                <select
+                  value={editGenre}
+                  onChange={(e) => setEditGenre(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                >
+                  {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-400 mb-2">{t('lib.tagsComma')}</label>
+                <input
+                  type="text"
+                  value={editTagsStr}
+                  onChange={(e) => setEditTagsStr(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2.5 text-white focus:border-primary focus:ring-1 focus:ring-primary outline-none"
+                  placeholder={t('lib.tagsPlaceholder')}
+                />
+              </div>
+            </div>
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={() => setEditProject(null)}
+                className="flex-1 px-4 py-2.5 border border-slate-700 rounded-lg text-slate-300 hover:bg-slate-800 transition-colors"
+              >
+                {t('lib.cancel')}
+              </button>
+              <button
+                onClick={handleSaveEdit}
+                disabled={saving || !editTitle.trim()}
+                className="flex-1 px-4 py-2.5 bg-primary hover:bg-primary-hover text-white rounded-lg font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              >
+                {saving && <Loader2 className="w-4 h-4 animate-spin" />}
+                {t('lib.save')}
               </button>
             </div>
           </div>

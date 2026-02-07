@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { createGenerate, type GeneratePayload } from '../api'
+import { createGenerate, getModelList, type GeneratePayload } from '../api'
 
 export default function SubmitGenerate() {
   const navigate = useNavigate()
@@ -10,9 +10,24 @@ export default function SubmitGenerate() {
   const [topk, setTopk] = useState(50)
   const [temperature, setTemperature] = useState(1.0)
   const [cfg_scale, setCfgScale] = useState(1.5)
-  const [version, setVersion] = useState('3B')
+  const [modelList, setModelList] = useState<string[]>([])
+  const [version, setVersion] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    getModelList().then((list) => {
+      setModelList(list)
+      if (list.length > 0) {
+        const first = list.filter((m) => m.toLowerCase().includes('heartmula'))[0] ?? list[0]
+        setVersion((v) => (v ? v : first))
+      }
+    })
+  }, [])
+
+  const heartMulaOnly = modelList.filter((m) => m.toLowerCase().includes('heartmula'))
+  const versionOptions = heartMulaOnly.length > 0 ? heartMulaOnly : modelList.length > 0 ? modelList : ['HeartMuLa-oss-3B', '3B']
+  const effectiveVersion = version || versionOptions[0]
 
   const appendTag = (s: string) => {
     const trimmed = s.trim()
@@ -31,7 +46,7 @@ export default function SubmitGenerate() {
       topk,
       temperature,
       cfg_scale,
-      version,
+      version: effectiveVersion,
     }
     createGenerate(payload)
       .then(({ task_id }) => navigate(`/tasks/${task_id}`))
@@ -216,15 +231,18 @@ export default function SubmitGenerate() {
               <p className="text-xs text-gray-500 mt-0.5">条件引导强度，默认 1.5</p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">模型版本 version</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">检查点 / 模型版本</label>
               <select
-                value={version}
+                value={effectiveVersion}
                 onChange={(e) => setVersion(e.target.value)}
                 className="w-full border border-gray-300 rounded p-2 text-sm"
               >
-                <option value="3B">3B</option>
+                {modelList.length === 0 && <option value="">加载中…</option>}
+                {versionOptions.map((m) => (
+                  <option key={m} value={m}>{m}</option>
+                ))}
               </select>
-              <p className="text-xs text-gray-500 mt-0.5">当前仅支持 3B</p>
+              <p className="text-xs text-gray-500 mt-0.5">由后端 /api/models 返回的可用模型</p>
             </div>
           </div>
         </div>

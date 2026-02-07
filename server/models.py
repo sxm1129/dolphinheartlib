@@ -38,6 +38,7 @@ class Task:
         output_audio_path: Optional[str] = None,
         result: Optional[str] = None,
         error_message: Optional[str] = None,
+        project_id: Optional[str] = None,
     ):
         self.id = id
         self.type = type
@@ -48,23 +49,29 @@ class Task:
         self.output_audio_path = output_audio_path
         self.result = result
         self.error_message = error_message
+        self.project_id = project_id
 
     @classmethod
     def from_row(cls, row: Any) -> "Task":
-        # Support both dict (MySQL) and sqlite3.Row
-        if hasattr(row, 'keys'):
-            return cls(
-                id=row["id"],
-                type=row["type"],
-                status=row["status"],
-                created_at=row["created_at"],
-                updated_at=row["updated_at"],
-                params=row["params"],
-                output_audio_path=row["output_audio_path"],
-                result=row["result"],
-                error_message=row["error_message"],
-            )
-        return cls(*row)
+        def _get(r: Any, key: str, default: Any = None) -> Any:
+            if hasattr(r, "get"):
+                return r.get(key, default)
+            if hasattr(r, "keys") and key in r.keys():
+                return r[key]
+            return default
+
+        return cls(
+            id=row["id"],
+            type=row["type"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            params=row["params"],
+            output_audio_path=_get(row, "output_audio_path"),
+            result=_get(row, "result"),
+            error_message=_get(row, "error_message"),
+            project_id=_get(row, "project_id"),
+        )
 
 
 class Project:

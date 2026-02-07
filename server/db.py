@@ -23,7 +23,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     params TEXT NOT NULL,
     output_audio_path VARCHAR(500),
     result LONGTEXT,
-    error_message TEXT
+    error_message TEXT,
+    project_id VARCHAR(36) DEFAULT NULL,
+    INDEX idx_project_id (project_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
 """
 
@@ -54,7 +56,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     params TEXT NOT NULL,
     output_audio_path TEXT,
     result TEXT,
-    error_message TEXT
+    error_message TEXT,
+    project_id TEXT
 )
 """
 
@@ -163,6 +166,47 @@ def _create_database_if_not_exists():
         print(f"Warning: Could not create database: {e}")
 
 
+def _project_id_column_exists() -> bool:
+    """Return True if tasks.project_id already exists (avoids duplicate ALTER)."""
+    with get_connection() as conn:
+        if USE_MYSQL:
+            cur = conn.execute(
+                "SELECT 1 FROM information_schema.COLUMNS "
+                "WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'tasks' AND COLUMN_NAME = 'project_id' LIMIT 1"
+            )
+            row = cur.fetchone()
+            return row is not None
+        # SQLite: pragma table_info(tasks) returns (cid, name, type, notnull, default, pk)
+        cur = conn.execute("PRAGMA table_info(tasks)")
+        rows = cur.fetchall()
+        for row in rows:
+            name = row[1] if isinstance(row, (list, tuple)) else (row.get("name") if hasattr(row, "get") else None)
+            if name == "project_id":
+                return True
+        return False
+
+
+def _add_project_id_to_tasks() -> None:
+    """Add project_id column to tasks if missing (migration for existing DBs)."""
+    if _project_id_column_exists():
+        return
+    try:
+        with get_connection() as conn:
+            if USE_MYSQL:
+                conn.execute(
+                    "ALTER TABLE tasks ADD COLUMN project_id VARCHAR(36) DEFAULT NULL"
+                )
+            else:
+                conn.execute("ALTER TABLE tasks ADD COLUMN project_id TEXT DEFAULT NULL")
+            conn.commit()
+        print("tasks.project_id column added.")
+    except Exception as e:
+        if "Duplicate column" in str(e) or "duplicate column" in str(e) or "already exists" in str(e).lower():
+            pass
+        else:
+            print(f"Warning: Could not add project_id to tasks: {e}")
+
+
 def init_db() -> None:
     """Create tasks and projects tables if they do not exist."""
     if USE_MYSQL:
@@ -171,6 +215,7 @@ def init_db() -> None:
             conn.execute(CREATE_TASKS_TABLE_MYSQL)
             conn.execute(CREATE_PROJECTS_TABLE_MYSQL)
             conn.commit()
+        _add_project_id_to_tasks()
         print("MySQL tables initialized.")
     else:
         ensure_output_dir()
@@ -178,4 +223,5 @@ def init_db() -> None:
             conn.execute(CREATE_TASKS_TABLE_SQLITE)
             conn.execute(CREATE_PROJECTS_TABLE_SQLITE)
             conn.commit()
+        _add_project_id_to_tasks()
         print("SQLite tables initialized.")

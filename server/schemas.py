@@ -14,6 +14,8 @@ class GenerateRequest(BaseModel):
     temperature: Optional[float] = 1.0
     cfg_scale: Optional[float] = 1.5
     version: Optional[str] = "3B"
+    project_id: Optional[str] = None
+    ref_file_id: Optional[str] = None
 
 
 class TranscribeRequestParams(BaseModel):
@@ -40,6 +42,7 @@ class TaskResponse(BaseModel):
     output_audio_path: Optional[str] = None
     result: Optional[Any] = None
     error_message: Optional[str] = None
+    project_id: Optional[str] = None
 
 
 class TaskListResponse(BaseModel):

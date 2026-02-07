@@ -13,8 +13,12 @@ import gc
 
 
 def _resolve_paths(pretrained_path: str, version: str):
-
-    heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version}")
+    # version may be full dir name from API (e.g. "HeartMuLa-oss-3B") or preset name (e.g. "HeartMula-Pro-4B (v2.1)") or short ("3B"); avoid double prefix
+    version_lower = version.strip().lower()
+    if version_lower.startswith("heartmula-") or version_lower.startswith("heartmula-oss-"):
+        heartmula_path = os.path.join(pretrained_path, version.strip())
+    else:
+        heartmula_path = os.path.join(pretrained_path, f"HeartMuLa-oss-{version.strip()}")
     heartcodec_path = os.path.join(pretrained_path, "HeartCodec-oss")
     tokenizer_path = os.path.join(pretrained_path, "tokenizer.json")
     gen_config_path = os.path.join(pretrained_path, "gen_config.json")

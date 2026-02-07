@@ -56,17 +56,6 @@ const AudioLab: React.FC = () => {
       <main className="flex-1 flex overflow-hidden">
          {/* Left Sidebar */}
          <aside className="w-72 bg-[#1e1c2e] border-r border-[#29273a] flex flex-col shrink-0 overflow-y-auto relative">
-             {/* Coming Soon Overlay */}
-             <div className="absolute inset-0 bg-[#110f23]/90 backdrop-blur-sm z-50 flex flex-col items-center justify-center">
-                <div className="w-16 h-16 rounded-full bg-primary/20 flex items-center justify-center mb-4">
-                   <Wand2 className="w-8 h-8 text-primary" />
-                </div>
-                <h3 className="text-xl font-bold text-white mb-2">{t('lab.comingSoon')}</h3>
-                <p className="text-sm text-slate-400 text-center px-6">
-                   {t('lab.comingSoonDesc')}
-                </p>
-             </div>
-             
              <div className="px-5 py-4 border-b border-[#29273a]">
                 <h3 className="text-xs font-bold text-[#9e9bbb] tracking-widest uppercase">{t('lab.stemSep')}</h3>
              </div>
@@ -104,7 +93,10 @@ const AudioLab: React.FC = () => {
 
          {/* Center Visualization */}
          <div className="flex-1 flex flex-col relative bg-[#110f23]">
-             <section className="flex-1 relative border-b border-[#29273a] bg-[#161425] overflow-hidden flex items-center justify-center">
+             <section className="flex-1 relative border-b border-[#29273a] bg-[#161425] overflow-hidden flex flex-col items-center justify-center">
+                 <div className="text-center mb-6 px-6">
+                   <p className="text-slate-400 text-sm">{t('lab.comingSoonDesc')}</p>
+                 </div>
                  {/* Grid Background */}
                  <div className="absolute inset-0 pointer-events-none" style={{backgroundImage: 'linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px)', backgroundSize: '40px 100px'}}></div>
                  

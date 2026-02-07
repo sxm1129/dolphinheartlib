@@ -17,25 +17,25 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def create_task(task_type: str, params: dict) -> str:
+def create_task(task_type: str, params: dict, project_id: Optional[str] = None) -> str:
     """Insert a new task with status pending. Returns task_id."""
     task_id = str(uuid.uuid4())
-    _create_task_row(task_id, task_type, params)
+    _create_task_row(task_id, task_type, params, project_id)
     return task_id
 
 
-def create_task_with_id(task_id: str, task_type: str, params: dict) -> None:
+def create_task_with_id(task_id: str, task_type: str, params: dict, project_id: Optional[str] = None) -> None:
     """Insert a task with given id and status pending."""
-    _create_task_row(task_id, task_type, params)
+    _create_task_row(task_id, task_type, params, project_id)
 
 
-def _create_task_row(task_id: str, task_type: str, params: dict) -> None:
+def _create_task_row(task_id: str, task_type: str, params: dict, project_id: Optional[str] = None) -> None:
     now = _now_iso()
     with get_connection() as conn:
         conn.execute(
-            """INSERT INTO tasks (id, type, status, created_at, updated_at, params)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (task_id, task_type, STATUS_PENDING, now, now, json.dumps(params)),
+            """INSERT INTO tasks (id, type, status, created_at, updated_at, params, project_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (task_id, task_type, STATUS_PENDING, now, now, json.dumps(params), project_id),
         )
         conn.commit()
 
@@ -54,6 +54,7 @@ def list_tasks(
     page_size: int = 20,
     status: Optional[str] = None,
     task_type: Optional[str] = None,
+    project_id: Optional[str] = None,
 ) -> tuple[List[Task], int]:
     """Return (items for page, total count)."""
     conditions = []
@@ -64,10 +65,23 @@ def list_tasks(
     if task_type is not None:
         conditions.append("type = ?")
         args.append(task_type)
+    if project_id is not None:
+        conditions.append("project_id = ?")
+        args.append(project_id)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-    count_sql = f"SELECT COUNT(*) FROM tasks {where}"
+    count_sql = f"SELECT COUNT(*) AS total FROM tasks {where}"
     with get_connection() as conn:
-        total = conn.execute(count_sql, args).fetchone()[0]
+        row = conn.execute(count_sql, args).fetchone()
+        if row is None:
+            total = 0
+        else:
+            try:
+                total = row["total"]
+            except (TypeError, KeyError):
+                try:
+                    total = row[0]
+                except (TypeError, KeyError):
+                    total = next(iter(row.values()), 0)
         offset = (page - 1) * page_size
         args.extend([page_size, offset])
         rows = conn.execute(

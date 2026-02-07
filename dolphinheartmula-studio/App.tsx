@@ -5,6 +5,7 @@ import Studio from './pages/Studio';
 import AudioLab from './pages/AudioLab';
 import { ViewMode } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
+import { ProjectProvider } from './contexts/ProjectContext';
 
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>(ViewMode.LIBRARY);
@@ -12,13 +13,13 @@ const AppContent: React.FC = () => {
   const renderContent = () => {
     switch (currentView) {
       case ViewMode.LIBRARY:
-        return <Library />;
+        return <Library setCurrentView={setCurrentView} />;
       case ViewMode.STUDIO:
         return <Studio />;
       case ViewMode.AUDIO_LAB:
         return <AudioLab />;
       default:
-        return <Library />;
+        return <Library setCurrentView={setCurrentView} />;
     }
   };
 
@@ -32,7 +33,7 @@ const AppContent: React.FC = () => {
           <div className="absolute top-4 left-4 z-50">
              <button 
                 onClick={() => setCurrentView(ViewMode.LIBRARY)}
-                className="opacity-0 w-32 h-8 absolute"
+                className="w-32 h-8 absolute px-3 py-1.5 rounded bg-surface-darker border border-[#374151] text-slate-300 hover:text-white hover:bg-[#374151] transition-colors"
              >Back</button>
           </div>
       )}
@@ -47,7 +48,9 @@ const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <LanguageProvider>
-      <AppContent />
+      <ProjectProvider>
+        <AppContent />
+      </ProjectProvider>
     </LanguageProvider>
   );
 };

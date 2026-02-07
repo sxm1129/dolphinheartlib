@@ -8,10 +8,18 @@ import {
 import WaveformViz from '../components/WaveformViz';
 import { GoogleGenAI } from "@google/genai";
 import { useTranslation } from '../contexts/LanguageContext';
-import { generateAudio, getTask, getAudioUrl, pollTaskStatus, TaskResponse, uploadReferenceAudio, deleteUploadedFile, UploadResponse } from '../services/api';
+import { generateAudio, getTask, getAudioUrl, pollTaskStatus, TaskResponse, updateProject, getModelList, getTasks, getProject } from '../services/api';
+import { useProject } from '../contexts/ProjectContext';
 
 const GENRES = ['Electronic', 'Pop', 'Rock', 'Hip Hop', 'R&B', 'Country', 'Jazz', 'Metal', 'Folk', 'Ambient'];
 const MOODS = ['Dark', 'Happy', 'Sad', 'Energetic', 'Chill', 'Romantic', 'Nostalgic', 'Angry', 'Dreamy'];
+
+const TAG_GROUPS: { group: string; tags: { label: string; value: string }[] }[] = [
+  { group: '情绪 / 氛围', tags: [{ label: '温暖', value: 'warm' }, { label: '反思', value: 'reflection' }, { label: '柔和', value: 'soft' }, { label: '悲伤', value: 'Sad' }, { label: '遗憾', value: 'Regret' }, { label: '渴望', value: 'Longing' }, { label: '希望', value: 'hope' }, { label: '欢快', value: 'hopeful' }, { label: '平和', value: 'peaceful' }, { label: '感性', value: 'emotional' }, { label: '活力', value: 'energetic' }, { label: '自我发现', value: 'self-discovery' }] },
+  { group: '流派 / 风格', tags: [{ label: '流行', value: 'pop' }, { label: 'R&B', value: 'R&B' }, { label: '民谣/叙事', value: 'Ballad' }, { label: '电子', value: 'electronic' }, { label: '摇滚', value: 'rock' }, { label: '浪漫', value: 'Romantic' }, { label: '咖啡厅', value: 'Cafe' }, { label: '冥想', value: 'meditation' }, { label: '信仰', value: 'faith' }, { label: '行走感', value: 'Walking' }, { label: '强力/史诗', value: 'powerful' }, { label: '史诗', value: 'epic' }, { label: '驱动感', value: 'driving' }] },
+  { group: '乐器 / 音色', tags: [{ label: '钢琴', value: 'Piano' }, { label: '键盘', value: 'Keyboard' }, { label: '弦乐', value: 'Strings' }, { label: '木吉他', value: 'acoustic guitar' }, { label: '电吉他', value: 'electric guitar' }, { label: '鼓机', value: 'drum machine' }, { label: '鼓', value: 'drums' }, { label: '合成器', value: 'synthesizer' }, { label: '原声', value: 'acoustic' }] },
+  { group: '场景 / 人声', tags: [{ label: '婚礼', value: 'wedding' }, { label: '男声', value: 'male vocal' }, { label: '女声', value: 'female vocal' }] },
+];
 
 interface GenPreset {
   id: string;
@@ -19,18 +27,24 @@ interface GenPreset {
   checkpoint: string;
   temperature: number;
   topP: number;
-  seamless: boolean;
 }
 
 const DEFAULT_PRESETS: GenPreset[] = [
-  { id: 'p1', name: 'Balanced (Default)', checkpoint: 'HeartMula-Pro-4B (v2.1)', temperature: 0.85, topP: 0.9, seamless: false },
-  { id: 'p2', name: 'High Creativity', checkpoint: 'HeartMula-Pro-4B (v2.1)', temperature: 1.1, topP: 0.95, seamless: false },
-  { id: 'p3', name: 'Consistent Loop', checkpoint: 'HeartMula-Fast-2B', temperature: 0.7, topP: 0.8, seamless: true },
+  { id: 'p1', name: 'Balanced (Default)', checkpoint: 'HeartMula-Pro-4B (v2.1)', temperature: 0.85, topP: 0.9 },
+  { id: 'p2', name: 'High Creativity', checkpoint: 'HeartMula-Pro-4B (v2.1)', temperature: 1.1, topP: 0.95 },
+  { id: 'p3', name: 'Faster (2B)', checkpoint: 'HeartMula-Fast-2B', temperature: 0.7, topP: 0.8 },
 ];
+
+const PRESETS_STORAGE_KEY = 'dolphinheart_studio_presets';
+/** Default length for new generation (ms). Used so new tasks are not limited by previously loaded short clip duration. */
+const DEFAULT_GENERATION_MS = 240_000;
 
 const Studio: React.FC = () => {
   const { t } = useTranslation();
+  const { currentProject, currentProjectId, setCurrentProject } = useProject();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const currentProjectIdRef = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
   
   const [lyrics, setLyrics] = useState(`[Intro]
 (Instrumental build-up)
@@ -44,8 +58,15 @@ Burning with this digital desire...`);
   const [lyricPrompt, setLyricPrompt] = useState("");
   const [genre, setGenre] = useState("Electronic");
   const [mood, setMood] = useState("Dark");
-  
+  const [tags, setTags] = useState('warm,pop,Romantic,Piano');
+  const appendTag = (value: string) => {
+    const v = value.trim();
+    if (!v) return;
+    setTags((prev) => (prev ? `${prev},${v}` : v));
+  };
+
   const [isGeneratingLyrics, setIsGeneratingLyrics] = useState(false);
+  const [lyricsError, setLyricsError] = useState<string | null>(null);
   const [lyricsHistory, setLyricsHistory] = useState<Array<{text: string, timestamp: Date}>>([]);
   const [showHistory, setShowHistory] = useState(false);
 
@@ -65,19 +86,34 @@ Burning with this digital desire...`);
   const [checkpoint, setCheckpoint] = useState('HeartMula-Pro-4B (v2.1)');
   const [temperature, setTemperature] = useState(0.85);
   const [topP, setTopP] = useState(0.9);
-  const [seamless, setSeamless] = useState(false);
 
-  const [presets, setPresets] = useState<GenPreset[]>(DEFAULT_PRESETS);
+  const [presets, setPresets] = useState<GenPreset[]>(() => {
+    try {
+      const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PRESETS;
+      }
+    } catch {
+      // ignore
+    }
+    return DEFAULT_PRESETS;
+  });
   const [selectedPresetId, setSelectedPresetId] = useState<string>('p1');
   const [showSaveInput, setShowSaveInput] = useState(false);
   const [newPresetName, setNewPresetName] = useState('');
+  const [modelList, setModelList] = useState<string[]>([]);
+  const [modelListLoading, setModelListLoading] = useState(false);
+  const [taskLoading, setTaskLoading] = useState(false);
+  const [updateProjectError, setUpdateProjectError] = useState<string | null>(null);
+  const [projectNotFound, setProjectNotFound] = useState(false);
 
-  // Reference Audio Upload State
-  const [refAudioFile, setRefAudioFile] = useState<UploadResponse | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const [isDragging, setIsDragging] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Keep ref in sync for race-condition checks
+  currentProjectIdRef.current = currentProjectId;
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => { isMountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -95,6 +131,66 @@ Burning with this digital desire...`);
     return () => clearInterval(interval);
   }, [isPlaying, duration]);
 
+  useEffect(() => {
+    setModelListLoading(true);
+    getModelList()
+      .then((list) => {
+        setModelList(list);
+        if (list.length === 1) setCheckpoint(list[0]);
+      })
+      .catch(() => setModelList([]))
+      .finally(() => setModelListLoading(false));
+  }, []);
+
+  useEffect(() => {
+    const requestedId = currentProjectId;
+    setTaskLoading(true);
+    getTasks({
+      page: 1,
+      page_size: 1,
+      status: 'completed',
+      type: 'generate',
+      ...(currentProjectId ? { project_id: currentProjectId } : {}),
+    })
+      .then((res) => {
+        if (currentProjectIdRef.current !== requestedId) return;
+        const task = res.items?.[0];
+        if (task?.id && task.output_audio_path) {
+          setAudioTaskId(task.id);
+          setAudioUrl(getAudioUrl(task.id));
+          setAudioTaskStatus('completed');
+          const ms = (task.params as { max_audio_length_ms?: number })?.max_audio_length_ms;
+          if (ms) setDuration(ms / 1000);
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (currentProjectIdRef.current === requestedId) setTaskLoading(false);
+      });
+  }, [currentProjectId]);
+
+  useEffect(() => {
+    if (!currentProjectId || currentProject) return;
+    setProjectNotFound(false);
+    getProject(currentProjectId)
+      .then((p) => setCurrentProject({ ...p, createdAt: p.created_at || (p as { createdAt?: string }).createdAt || '' }))
+      .catch((err) => {
+        const is404 = (err instanceof Error && (err.message.includes('404') || err.message.includes('Not Found'))) || false;
+        if (is404) {
+          setCurrentProject(null);
+          setProjectNotFound(true);
+        }
+      });
+  }, [currentProjectId, currentProject, setCurrentProject]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
+    } catch {
+      // ignore
+    }
+  }, [presets]);
+
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
@@ -103,40 +199,73 @@ Burning with this digital desire...`);
   };
 
   const handleScrub = (progress: number) => {
-    setCurrentTime(progress * duration);
+    const d = duration && Number.isFinite(duration) ? duration : (audioRef.current?.duration ?? 0);
+    const t = Math.max(0, Math.min(d, progress * d));
+    setCurrentTime(t);
+    if (audioRef.current && Number.isFinite(t)) {
+      audioRef.current.currentTime = t;
+    }
   };
 
   const handleGenerateLyrics = async () => {
     if (isGeneratingLyrics) return;
-    
+    setLyricsError(null);
     setIsGeneratingLyrics(true);
+    const openRouterKey = ((process.env as { OPENROUTER_API_KEY?: string }).OPENROUTER_API_KEY || '').trim();
+    const geminiKey = (process.env.API_KEY || '').trim();
+    const geminiValid = geminiKey && geminiKey !== 'PLACEHOLDER_API_KEY';
+    if (!openRouterKey && !geminiValid) {
+      setLyricsError(t('studio.lyricsErrorNoKey') || '未配置 API Key。请在项目根目录 .env 中设置 OPENROUTER_API_KEY 或 GEMINI_API_KEY，修改后需重启前端 (npm run dev 或 server.sh restart studio)。');
+      setIsGeneratingLyrics(false);
+      return;
+    }
     try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-        
-        let promptContent = `Write creative song lyrics based on the following parameters:
-        Genre: ${genre}
-        Mood: ${mood}`;
-        
-        if (lyricPrompt.trim()) {
-            promptContent += `\nTopic/Keywords: ${lyricPrompt}`;
-        }
-        
-        promptContent += `\n\nFormat nicely with [Verse], [Chorus], etc. headers. Return only the lyrics.`;
+      let promptContent = `Write creative song lyrics based on the following parameters:
+      Genre: ${genre}
+      Mood: ${mood}`;
+      if (lyricPrompt.trim()) promptContent += `\nTopic/Keywords: ${lyricPrompt}`;
+      promptContent += `\n\nFormat nicely with [Verse], [Chorus], etc. headers. Return only the lyrics.`;
 
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: promptContent,
+      let text = '';
+      if (openRouterKey) {
+        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${openRouterKey}`,
+            'HTTP-Referer': window.location.origin || '',
+          },
+          body: JSON.stringify({
+            model: ((process.env as { OPENROUTER_MODEL_NAME?: string }).OPENROUTER_MODEL_NAME || '').trim() || 'google/gemini-2.0-flash-exp',
+            messages: [{ role: 'user', content: promptContent }],
+            max_tokens: 2048,
+          }),
         });
-        
-        const text = response.text;
-        if (text) {
-            setLyricsHistory(prev => [{text, timestamp: new Date()}, ...prev]);
-            setLyrics(text);
+        if (!res.ok) {
+          const errBody = await res.text();
+          throw new Error(res.status === 401 ? 'OpenRouter API Key 无效或未设置' : `OpenRouter ${res.status}: ${errBody.slice(0, 200)}`);
         }
+        const data = await res.json();
+        text = data?.choices?.[0]?.message?.content?.trim() ?? '';
+      } else if (geminiValid) {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: promptContent,
+        });
+        text = (response as { text?: string }).text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+      }
+      if (text) {
+        setLyricsHistory(prev => [{ text, timestamp: new Date() }, ...prev]);
+        setLyrics(text);
+      } else {
+        setLyricsError(t('studio.lyricsErrorEmpty') || '未返回歌词内容');
+      }
     } catch (e) {
-        console.error("Failed to generate lyrics", e);
+      console.error('Failed to generate lyrics', e);
+      setLyricsError(e instanceof Error ? e.message : (t('studio.lyricsError') || '歌词生成失败，请检查 API Key 或网络'));
     } finally {
-        setIsGeneratingLyrics(false);
+      setIsGeneratingLyrics(false);
     }
   };
 
@@ -152,10 +281,9 @@ Burning with this digital desire...`);
     setSelectedPresetId(presetId);
     const preset = presets.find(p => p.id === presetId);
     if (preset) {
-        setCheckpoint(preset.checkpoint);
-        setTemperature(preset.temperature);
-        setTopP(preset.topP);
-        setSeamless(preset.seamless);
+        setCheckpoint(preset.checkpoint ?? 'HeartMula-Pro-4B (v2.1)');
+        setTemperature(preset.temperature ?? 0.85);
+        setTopP(preset.topP ?? 0.9);
     }
   };
 
@@ -168,7 +296,6 @@ Burning with this digital desire...`);
         checkpoint,
         temperature,
         topP,
-        seamless
     };
     setPresets([...presets, newPreset]);
     setSelectedPresetId(newId);
@@ -195,41 +322,56 @@ Burning with this digital desire...`);
     setAudioTaskStatus('pending');
     
     try {
-      // Create generation task
+      // topk: heartlib expects integer; UI topP 0–1 mapped to 1–100, clamped to avoid invalid values
+      const topk = Math.min(100, Math.max(1, Math.round(topP * 100)));
       const { task_id } = await generateAudio({
         lyrics: lyrics,
-        tags: `${genre}, ${mood}`,
+        tags: tags.trim() || `${genre}, ${mood}`,
         temperature: temperature,
-        topk: Math.round(topP * 100),  // Convert topP to topK approximation
+        topk,
         cfg_scale: 1.5,
-        max_audio_length_ms: duration * 1000,
+        max_audio_length_ms: DEFAULT_GENERATION_MS,
+        version: checkpoint,
+        project_id: currentProjectId || undefined,
       });
       
+      if (!isMountedRef.current) return;
       setAudioTaskId(task_id);
       setAudioTaskStatus('running');
       
-      // Poll for completion
       const completedTask = await pollTaskStatus(
         task_id,
         (task) => {
-          setAudioTaskStatus(task.status);
+          if (isMountedRef.current) setAudioTaskStatus(task.status);
         }
       );
       
+      if (!isMountedRef.current) return;
       if (completedTask.status === 'completed') {
-        // Set the audio URL
         setAudioUrl(getAudioUrl(task_id));
         setAudioTaskStatus('completed');
+        const durationSec = DEFAULT_GENERATION_MS / 1000;
+        setDuration(durationSec);
+        const durationStr = `${Math.floor(durationSec / 60)}:${String(Math.floor(durationSec % 60)).padStart(2, '0')}`;
+        if (currentProjectId) {
+          setUpdateProjectError(null);
+          updateProject(currentProjectId, { duration: durationStr, status: 'Generated' })
+            .then(() => {
+              if (isMountedRef.current && currentProject) setCurrentProject({ ...currentProject, duration: durationStr, status: 'Generated' });
+            })
+            .catch((err) => { if (isMountedRef.current) setUpdateProjectError(err instanceof Error ? err.message : '更新项目失败'); });
+        }
       } else {
         setAudioError(completedTask.error_message || 'Generation failed');
         setAudioTaskStatus('failed');
       }
     } catch (error) {
+      if (!isMountedRef.current) return;
       console.error('Audio generation failed:', error);
       setAudioError(error instanceof Error ? error.message : 'Unknown error');
       setAudioTaskStatus('failed');
     } finally {
-      setIsGeneratingAudio(false);
+      if (isMountedRef.current) setIsGeneratingAudio(false);
     }
   };
 
@@ -248,76 +390,20 @@ Burning with this digital desire...`);
     }
   };
 
-  // Reference Audio Upload Handlers
-  const handleFileUpload = async (file: File) => {
-    const allowedTypes = ['audio/mpeg', 'audio/wav', 'audio/flac', 'audio/ogg', 'audio/x-m4a', 'audio/aac'];
-    const allowedExtensions = ['.mp3', '.wav', '.flac', '.ogg', '.m4a', '.aac'];
-    
-    const ext = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-    if (!allowedExtensions.includes(ext) && !allowedTypes.includes(file.type)) {
-      setUploadError('不支持的文件格式。请上传 MP3, WAV, FLAC, OGG 或 M4A 文件。');
-      return;
-    }
-    
-    if (file.size > 50 * 1024 * 1024) {
-      setUploadError('文件过大。最大支持 50MB。');
-      return;
-    }
-    
-    setIsUploading(true);
-    setUploadError(null);
-    
-    try {
-      const response = await uploadReferenceAudio(file);
-      setRefAudioFile(response);
-    } catch (error) {
-      console.error('Upload failed:', error);
-      setUploadError(error instanceof Error ? error.message : '上传失败');
-    } finally {
-      setIsUploading(false);
-    }
-  };
-  
-  const handleDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(false);
-    
-    const file = e.dataTransfer.files[0];
-    if (file) {
-      handleFileUpload(file);
-    }
-  };
-  
-  const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault();
-    setIsDragging(true);
-  };
-  
-  const handleDragLeave = () => {
-    setIsDragging(false);
-  };
-  
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      handleFileUpload(file);
-    }
-  };
-  
-  const handleRemoveRefAudio = async () => {
-    if (refAudioFile) {
-      try {
-        await deleteUploadedFile(refAudioFile.file_id);
-      } catch (error) {
-        console.error('Failed to delete file:', error);
-      }
-      setRefAudioFile(null);
-    }
-  };
-
   return (
     <div className="flex-1 flex flex-col h-full overflow-hidden bg-background-dark text-slate-200">
-      
+      {/* Hidden audio element for playback; required for generated audio to be audible */}
+      <audio
+        ref={audioRef}
+        src={audioUrl || undefined}
+        onTimeUpdate={() => audioRef.current && setCurrentTime(audioRef.current.currentTime)}
+        onDurationChange={() => audioRef.current && setDuration(audioRef.current.duration)}
+        onEnded={() => setIsPlaying(false)}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        className="hidden"
+      />
+
       {/* Top Bar */}
       <div className="h-14 border-b border-slate-800 bg-surface-dark flex items-center px-4 justify-between shrink-0 z-30">
         <div className="flex items-center gap-4">
@@ -330,7 +416,8 @@ Burning with this digital desire...`);
           <div className="h-6 w-px bg-slate-700 mx-2"></div>
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <span className="material-symbols-rounded text-sm">folder_open</span>
-            <span>{t('studio.untitled')}</span>
+            <span>{currentProject?.title || t('studio.untitled')}</span>
+            {taskLoading && <Loader2 className="w-3 h-3 text-slate-500 animate-spin ml-1" />}
             <span className="bg-green-500/10 text-green-500 text-[10px] px-1.5 py-0.5 rounded border border-green-500/20 font-bold uppercase ml-2 flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span>
                 {t('studio.live')}
@@ -344,7 +431,17 @@ Burning with this digital desire...`);
                 <button className="px-3 py-1 rounded hover:bg-slate-700/50 text-xs font-medium text-slate-500 transition-colors">{t('studio.mastering')}</button>
              </div>
              
-             <button className="flex items-center gap-1.5 bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg shadow-purple-900/30">
+             <button
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(window.location.href);
+                    alert(t('studio.shareCopied') || '链接已复制到剪贴板');
+                  } catch {
+                    alert('复制失败');
+                  }
+                }}
+                className="flex items-center gap-1.5 bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg shadow-purple-900/30"
+              >
                 <Share2 className="w-3 h-3" />
                 {t('studio.share')}
              </button>
@@ -355,6 +452,30 @@ Burning with this digital desire...`);
              </div>
         </div>
       </div>
+
+      {/* Error banners: generation failure, updateProject failure, project not found */}
+      {(audioError || updateProjectError || projectNotFound) && (
+        <div className="shrink-0 px-4 py-2 bg-red-950/80 border-b border-red-900/50 flex flex-wrap items-center gap-3 text-sm">
+          {projectNotFound && (
+            <span className="flex items-center gap-2 text-amber-300">
+              <span>{t('studio.projectNotFound') || '项目不存在或已删除'}</span>
+              <button type="button" onClick={() => setProjectNotFound(false)} className="text-amber-400 hover:text-amber-200 p-0.5" aria-label="关闭"><X className="w-4 h-4" /></button>
+            </span>
+          )}
+          {audioError && (
+            <span className="flex items-center gap-2 text-red-300">
+              <span>{t('studio.genError') || '生成失败'}: {audioError}</span>
+              <button type="button" onClick={() => setAudioError(null)} className="text-red-400 hover:text-red-200 p-0.5" aria-label="关闭"><X className="w-4 h-4" /></button>
+            </span>
+          )}
+          {updateProjectError && (
+            <span className="flex items-center gap-2 text-red-300">
+              <span>{t('studio.updateProjectError') || '更新项目失败'}: {updateProjectError}</span>
+              <button type="button" onClick={() => setUpdateProjectError(null)} className="text-red-400 hover:text-red-200 p-0.5" aria-label="关闭"><X className="w-4 h-4" /></button>
+            </span>
+          )}
+        </div>
+      )}
 
       <div className="flex flex-1 overflow-hidden">
         {/* Left Config Panel */}
@@ -371,15 +492,67 @@ Burning with this digital desire...`);
                     <div className="p-3 space-y-4 border-t border-slate-800">
                         <div>
                             <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase">{t('studio.checkpoint')}</label>
-                            <select 
-                                value={checkpoint}
-                                onChange={(e) => setCheckpoint(e.target.value)}
-                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
-                            >
-                                <option>HeartMula-Pro-4B (v2.1)</option>
-                                <option>HeartMula-Fast-2B</option>
-                                <option>HeartCodec-Studio-HQ</option>
-                            </select>
+                            {modelListLoading ? (
+                              <div className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-500">{t('studio.loading') || '加载中…'}</div>
+                            ) : (() => {
+                                const options = modelList.length > 0 ? modelList : ['HeartMula-Pro-4B (v2.1)', 'HeartMula-Fast-2B', 'HeartCodec-Studio-HQ', 'HeartMula-3B (Standard)'];
+                                if (options.length === 1) {
+                                  return (
+                                    <div className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300" title={t('studio.singleModel') || '当前后端仅有一个模型'}>{options[0]}</div>
+                                  );
+                                }
+                                return (
+                                  <select
+                                    value={checkpoint}
+                                    onChange={(e) => setCheckpoint(e.target.value)}
+                                    className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                                  >
+                                    {options.map((m) => (
+                                      <option key={m} value={m}>{m}</option>
+                                    ))}
+                                  </select>
+                                );
+                            })()}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Tags: 与 10002 生成页一致的标签选择，提交到后端 */}
+                <div className="border border-slate-800 rounded-lg overflow-hidden bg-surface-dark">
+                    <div className="w-full flex items-center justify-between p-3 bg-slate-800/50">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                            <Layers className="w-3 h-3 text-primary" /> {t('studio.tags')}
+                        </span>
+                    </div>
+                    <div className="p-3 space-y-3 border-t border-slate-800">
+                        <div>
+                            <label className="block text-[10px] font-medium text-slate-400 mb-1.5 uppercase">{t('studio.tagsComma')}</label>
+                            <input
+                                type="text"
+                                value={tags}
+                                onChange={(e) => setTags(e.target.value)}
+                                placeholder="warm,pop,Piano,Romantic"
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 placeholder-slate-500 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                            />
+                        </div>
+                        <div className="space-y-2 max-h-48 overflow-y-auto custom-scrollbar">
+                            {TAG_GROUPS.map(({ group, tags: groupTags }) => (
+                                <div key={group}>
+                                    <span className="text-[10px] font-medium text-slate-500 block mb-1">{group}</span>
+                                    <div className="flex flex-wrap gap-1">
+                                        {groupTags.map(({ label, value }) => (
+                                            <button
+                                                key={value}
+                                                type="button"
+                                                onClick={() => appendTag(value)}
+                                                className="px-2 py-0.5 text-[10px] rounded border border-slate-600 bg-slate-800/80 hover:bg-slate-700 hover:border-slate-500 text-slate-300 transition-colors"
+                                            >
+                                                {label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
@@ -475,81 +648,32 @@ Burning with this digital desire...`);
                                 className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary" 
                             />
                         </div>
-
-                         <div className="flex items-center gap-2 pt-2">
-                            <input 
-                                type="checkbox" 
-                                id="seamless" 
-                                checked={seamless}
-                                onChange={(e) => setSeamless(e.target.checked)}
-                                className="rounded border-slate-600 bg-slate-800 text-primary focus:ring-primary h-3 w-3 cursor-pointer" 
-                            />
-                            <label htmlFor="seamless" className="text-xs text-slate-300 cursor-pointer select-none">{t('studio.seamless')}</label>
-                        </div>
                     </div>
                 </div>
+            </div>
 
-                {/* Upload Zone */}
-                <input 
-                  type="file" 
-                  ref={fileInputRef}
-                  onChange={handleFileSelect}
-                  accept=".mp3,.wav,.flac,.ogg,.m4a,.aac"
-                  className="hidden"
-                />
-                
-                {refAudioFile ? (
-                  // Uploaded file display
-                  <div className="border border-slate-700 rounded-lg p-4 bg-slate-900/50">
-                    <div className="flex items-center justify-between mb-2">
-                      <h4 className="text-xs font-medium text-slate-300">{t('studio.refAudio')}</h4>
-                      <button 
-                        onClick={handleRemoveRefAudio}
-                        className="text-slate-500 hover:text-red-400 transition-colors"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-3 bg-slate-800/50 rounded-lg p-2">
-                      <div className="w-10 h-10 rounded bg-primary/20 flex items-center justify-center">
-                        <Music className="w-5 h-5 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs text-white truncate">{refAudioFile.filename}</p>
-                        <p className="text-[10px] text-slate-500">{(refAudioFile.size / 1024).toFixed(1)} KB</p>
-                      </div>
-                      <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                    </div>
-                  </div>
-                ) : (
-                  // Upload dropzone
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    onDrop={handleDrop}
-                    onDragOver={handleDragOver}
-                    onDragLeave={handleDragLeave}
-                    className={`border border-dashed rounded-lg p-4 text-center transition-all cursor-pointer group ${
-                      isDragging 
-                        ? 'border-primary bg-primary/10' 
-                        : 'border-slate-700 bg-slate-900/50 hover:bg-slate-900 hover:border-slate-600'
-                    }`}
-                  >
-                    {isUploading ? (
-                      <>
-                        <Loader2 className="w-6 h-6 mx-auto text-primary mb-2 animate-spin" />
-                        <h4 className="text-xs font-medium text-slate-300">上传中...</h4>
-                      </>
+            {/* Generate Audio: main entry to trigger music generation */}
+            <div className="p-4 border-t border-slate-800">
+                <button
+                    type="button"
+                    onClick={handleGenerateAudio}
+                    disabled={isGeneratingAudio || !lyrics.trim()}
+                    className="w-full flex items-center justify-center gap-2 bg-primary hover:bg-primary-hover text-white font-bold py-3 px-4 rounded-lg shadow-lg shadow-purple-900/30 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary"
+                >
+                    {isGeneratingAudio ? (
+                        <>
+                            <Loader2 className="w-5 h-5 animate-spin" />
+                            <span>{t('studio.generating')}</span>
+                        </>
                     ) : (
-                      <>
-                        <Download className={`w-6 h-6 mx-auto mb-2 ${isDragging ? 'text-primary' : 'text-slate-500 group-hover:text-primary'}`} />
-                        <h4 className="text-xs font-medium text-slate-300">{t('studio.refAudio')}</h4>
-                        <p className="text-[10px] text-slate-500 mt-1">{t('studio.dropAudio')}</p>
-                        {uploadError && (
-                          <p className="text-[10px] text-red-400 mt-2">{uploadError}</p>
-                        )}
-                      </>
+                        <>
+                            <Zap className="w-5 h-5" />
+                            <span>{t('studio.generateMusic')}</span>
+                        </>
                     )}
-                  </div>
+                </button>
+                {!lyrics.trim() && (
+                    <p className="text-[10px] text-slate-500 mt-1.5 text-center">{t('studio.generateMusicHint')}</p>
                 )}
             </div>
 
@@ -652,121 +776,69 @@ Burning with this digital desire...`);
                                 <span className="text-[10px] font-mono text-slate-500">{t('studio.tokens')}: <span className="text-green-400">124</span>/512</span>
                             </div>
                         </div>
-                        <div className="flex-1 relative">
+                        <div className="flex-1 min-h-0">
                             <textarea 
                                 className="w-full h-full bg-transparent p-6 outline-none font-mono text-sm leading-relaxed resize-none text-slate-300 placeholder-slate-600 focus:ring-0 border-0"
                                 value={lyrics}
                                 onChange={(e) => setLyrics(e.target.value)}
                             />
-                            
-                            {/* Prompt Bar Overlay */}
-                            <div className="absolute bottom-4 left-4 right-4 bg-slate-800/95 backdrop-blur border border-slate-600 rounded-lg p-3 shadow-xl z-20 flex flex-col gap-3">
-                                <div className="flex gap-2">
-                                     {/* Genre Select */}
-                                     <div className="relative flex-1 group">
-                                         <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                                            <Music className="w-3 h-3 text-slate-500" />
-                                         </div>
-                                         <select 
-                                            value={genre} 
-                                            onChange={(e) => setGenre(e.target.value)}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 pl-8 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer hover:border-slate-600 transition-colors"
-                                         >
-                                            {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
-                                         </select>
-                                     </div>
-
-                                     {/* Mood Select */}
-                                     <div className="relative flex-1 group">
-                                         <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
-                                            <Smile className="w-3 h-3 text-slate-500" />
-                                         </div>
-                                         <select 
-                                            value={mood} 
-                                            onChange={(e) => setMood(e.target.value)}
-                                            className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 pl-8 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer hover:border-slate-600 transition-colors"
-                                         >
-                                            {MOODS.map(m => <option key={m} value={m}>{m}</option>)}
-                                         </select>
-                                     </div>
-                                </div>
-
-                                <div className="flex items-center gap-2 border-t border-slate-700/50 pt-2">
-                                    <span className="material-symbols-rounded text-slate-400 pl-1 text-base">tag</span>
-                                    <input 
-                                        type="text" 
-                                        value={lyricPrompt}
-                                        onChange={(e) => setLyricPrompt(e.target.value)}
-                                        onKeyDown={handleKeyDown}
-                                        placeholder={t('studio.promptPlaceholder')}
-                                        className="bg-transparent border-0 focus:ring-0 text-xs sm:text-sm text-white w-full placeholder-slate-500 p-0"
-                                    />
-                                    <button 
-                                        onClick={handleGenerateLyrics}
-                                        disabled={isGeneratingLyrics}
-                                        className="bg-primary hover:bg-primary-hover text-white px-4 py-1.5 rounded text-xs font-bold transition-colors shadow-lg shadow-purple-900/50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-                                    >
-                                        {isGeneratingLyrics && <Loader2 className="w-3 h-3 animate-spin" />}
-                                        {isGeneratingLyrics ? t('studio.generating') : t('studio.generate')}
-                                    </button>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
 
-                {/* Bottom: Timeline / Tracks */}
-                <div className="flex-1 bg-[#13161f] flex flex-col relative">
-                    <div className="h-8 bg-surface-dark border-b border-slate-800 flex items-center px-2 shadow-sm z-10">
-                        <span className="text-[10px] font-bold text-slate-500 w-24 pl-2">{t('studio.tracks')}</span>
-                        <div className="flex-1 flex justify-between px-2 text-[9px] font-mono text-slate-600 select-none">
-                            <span>00:00</span><span>00:15</span><span>00:30</span><span>00:45</span><span>01:00</span>
+                {/* AI 歌词生成：流派/情绪/关键词 + 生成，放在歌词编辑器下方，不遮挡歌词 */}
+                <div className="shrink-0 border-b border-slate-800 bg-surface-dark px-4 py-3 flex flex-col gap-3">
+                    <div className="flex gap-2">
+                        <div className="relative flex-1">
+                            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                                <Music className="w-3 h-3 text-slate-500" />
+                            </div>
+                            <select 
+                                value={genre} 
+                                onChange={(e) => setGenre(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 pl-8 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer hover:border-slate-600 transition-colors"
+                            >
+                                {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
+                            </select>
+                        </div>
+                        <div className="relative flex-1">
+                            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                                <Smile className="w-3 h-3 text-slate-500" />
+                            </div>
+                            <select 
+                                value={mood} 
+                                onChange={(e) => setMood(e.target.value)}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 pl-8 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer hover:border-slate-600 transition-colors"
+                            >
+                                {MOODS.map(m => <option key={m} value={m}>{m}</option>)}
+                            </select>
                         </div>
                     </div>
-
-                    <div className="flex-1 overflow-y-auto overflow-x-hidden relative waveform-container">
-                        {/* Track 1: Vocals */}
-                        <div className="h-24 border-b border-slate-800 flex group relative hover:bg-white/5 transition-colors">
-                            <div className="w-24 bg-surface-dark border-r border-slate-800 p-2 flex flex-col justify-center gap-1 shrink-0 z-10">
-                                <div className="text-xs font-medium text-slate-300 flex gap-1 items-center"><Mic className="w-3 h-3 text-purple-400" /> {t('studio.vocals')}</div>
-                                <div className="flex gap-1">
-                                    <button className="text-[9px] bg-slate-700 text-slate-400 px-1 rounded hover:text-white">M</button>
-                                    <button className="text-[9px] bg-slate-700 text-slate-400 px-1 rounded hover:text-white">S</button>
-                                </div>
-                            </div>
-                            <div className="flex-1 relative py-2 px-1">
-                                <div className="absolute left-0 top-2 bottom-2 w-[45%] bg-purple-500/20 border border-purple-500/40 rounded ml-2 overflow-hidden">
-                                     <div className="w-full h-full opacity-70 px-1 py-4">
-                                        <WaveformViz color="bg-purple-400" count={40} />
-                                     </div>
-                                     <div className="absolute top-1 left-2 text-[9px] font-bold text-purple-300">{t('studio.verse1')} {t('studio.generated')}</div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Track 2: Instrumental */}
-                        <div className="h-24 border-b border-slate-800 flex group relative hover:bg-white/5 transition-colors">
-                            <div className="w-24 bg-surface-dark border-r border-slate-800 p-2 flex flex-col justify-center gap-1 shrink-0 z-10">
-                                <div className="text-xs font-medium text-slate-300 flex gap-1 items-center"><Music className="w-3 h-3 text-blue-400" /> {t('studio.instr')}</div>
-                                <div className="flex gap-1">
-                                    <button className="text-[9px] bg-slate-700 text-slate-400 px-1 rounded hover:text-white">M</button>
-                                    <button className="text-[9px] bg-slate-700 text-slate-400 px-1 rounded hover:text-white">S</button>
-                                </div>
-                            </div>
-                            <div className="flex-1 relative py-2 px-1">
-                                <div className="absolute left-0 top-2 bottom-2 w-[45%] bg-blue-500/20 border border-blue-500/40 rounded ml-2 overflow-hidden flex items-center justify-center">
-                                     <div className="opacity-50">
-                                        <Layers className="w-6 h-6 text-blue-400" />
-                                     </div>
-                                     <div className="absolute top-1 left-2 text-[9px] font-bold text-blue-300">{t('studio.backing')}</div>
-                                </div>
-                                {/* Playhead Line */}
-                                <div className="absolute top-0 bottom-0 left-[20%] w-px bg-red-500 z-0 pointer-events-none">
-                                    <div className="w-3 h-3 -ml-1.5 bg-red-500 rotate-45 transform -mt-1.5 shadow-sm"></div>
-                                </div>
-                            </div>
-                        </div>
+                    <div className="flex items-center gap-2">
+                        <span className="material-symbols-rounded text-slate-400 text-base shrink-0">tag</span>
+                        <input 
+                            type="text" 
+                            value={lyricPrompt}
+                            onChange={(e) => setLyricPrompt(e.target.value)}
+                            onKeyDown={handleKeyDown}
+                            placeholder={t('studio.promptPlaceholder')}
+                            className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 placeholder-slate-500 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                        />
+                        <button 
+                            onClick={handleGenerateLyrics}
+                            disabled={isGeneratingLyrics}
+                            className="bg-primary hover:bg-primary-hover text-white px-4 py-1.5 rounded text-xs font-bold transition-colors shadow-lg shadow-purple-900/50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                        >
+                            {isGeneratingLyrics && <Loader2 className="w-3 h-3 animate-spin" />}
+                            {isGeneratingLyrics ? t('studio.generating') : t('studio.generate')}
+                        </button>
                     </div>
+                    {lyricsError && (
+                        <p className="text-[10px] text-red-400 flex items-center gap-1">
+                            {lyricsError}
+                            <button type="button" onClick={() => setLyricsError(null)} className="text-red-500 hover:text-red-300"><X className="w-3 h-3" /></button>
+                        </p>
+                    )}
                 </div>
             </div>
 
@@ -779,8 +851,10 @@ Burning with this digital desire...`);
                             onClick={() => setCurrentTime(0)}
                         />
                         <button 
-                            className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shadow-lg hover:bg-primary-hover hover:scale-105 transition-all"
-                            onClick={() => setIsPlaying(!isPlaying)}
+                            className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center shadow-lg hover:bg-primary-hover hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={togglePlayback}
+                            disabled={!audioUrl}
+                            title={audioUrl ? (isPlaying ? '暂停' : '播放') : '请先生成音频'}
                         >
                             {isPlaying ? (
                                 <Pause className="w-5 h-5 fill-current ml-0.5" />
@@ -802,8 +876,16 @@ Burning with this digital desire...`);
                 <div className="flex-1 h-full py-3 flex flex-col justify-center gap-2 border-l border-r border-slate-800 px-6">
                     <div className="flex justify-between items-end">
                         <div>
-                            <h3 className="font-bold text-sm text-white">Neon Cyber Dreams (v3)</h3>
-                            <p className="text-xs text-slate-500">Processing: 48kHz / 24bit • DolphinHeartMula-Pro</p>
+                            <h3 className="font-bold text-sm text-white">
+                                {audioUrl ? (currentProject?.title || t('studio.untitled')) + ' — ' + (t('studio.generated') || '(已生成)') : 'Neon Cyber Dreams (v3)'}
+                            </h3>
+                            <p className="text-xs text-slate-500">
+                                {audioTaskStatus === 'completed' && audioUrl
+                                  ? '48kHz / 24bit • ' + (t('studio.clickToSeek') || '点击波形跳转')
+                                  : audioTaskStatus === 'running'
+                                    ? t('studio.generating') + '…'
+                                    : 'Processing: 48kHz / 24bit • DolphinHeartMula-Pro'}
+                            </p>
                         </div>
                     </div>
                     <div className="h-10 w-full bg-slate-900/50 rounded overflow-hidden flex items-end pb-1 px-1 relative group">
@@ -825,7 +907,25 @@ Burning with this digital desire...`);
                         <Volume2 className="w-4 h-4 text-slate-500" />
                         <input type="range" className="flex-1 h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary" />
                     </div>
-                    <button className="bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded text-xs flex items-center justify-center gap-1 transition-colors border border-slate-700 w-full">
+                    <button
+                        onClick={async () => {
+                          if (!audioTaskId || !audioUrl) return;
+                          try {
+                            const r = await fetch(audioUrl);
+                            const blob = await r.blob();
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(blob);
+                            a.download = `generated-${audioTaskId}.mp3`;
+                            a.click();
+                            URL.revokeObjectURL(a.href);
+                          } catch (e) {
+                            console.error(e);
+                            alert('导出失败');
+                          }
+                        }}
+                        disabled={!audioTaskId || !audioUrl}
+                        className="bg-slate-800 hover:bg-slate-700 text-slate-300 py-1.5 rounded text-xs flex items-center justify-center gap-1 transition-colors border border-slate-700 w-full disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
                          {t('studio.export')} <Download className="w-3 h-3 ml-1" />
                     </button>
                 </div>

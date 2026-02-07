@@ -25,6 +25,10 @@ export interface GeneratePayload {
   temperature?: number
   cfg_scale?: number
   version?: string
+  /** Optional: associate task with a project (Studio-style). */
+  project_id?: string | null
+  /** Optional: reference audio file_id from POST /api/uploads/audio (Studio-style). */
+  ref_file_id?: string | null
 }
 
 export interface TranscribeParams {
@@ -41,11 +45,13 @@ export async function getTasks(
   page = 1,
   pageSize = 20,
   status?: string,
-  type?: string
+  type?: string,
+  projectId?: string
 ): Promise<TaskListResponse> {
   const params = new URLSearchParams({ page: String(page), page_size: String(pageSize) })
   if (status) params.set('status', status)
   if (type) params.set('type', type)
+  if (projectId) params.set('project_id', projectId)
   const r = await fetch(`${API_BASE}/tasks?${params}`)
   if (!r.ok) throw new Error(await r.text())
   return r.json()
@@ -58,10 +64,21 @@ export async function getTask(id: string): Promise<Task> {
 }
 
 export async function createGenerate(data: GeneratePayload): Promise<{ task_id: string }> {
+  const body: Record<string, unknown> = {
+    lyrics: data.lyrics,
+    tags: data.tags,
+    max_audio_length_ms: data.max_audio_length_ms,
+    topk: data.topk,
+    temperature: data.temperature,
+    cfg_scale: data.cfg_scale,
+    version: data.version,
+  }
+  if (data.project_id != null && data.project_id !== '') body.project_id = data.project_id
+  if (data.ref_file_id != null && data.ref_file_id !== '') body.ref_file_id = data.ref_file_id
   const r = await fetch(`${API_BASE}/tasks/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
+    body: JSON.stringify(body),
   })
   if (!r.ok) throw new Error(await r.text())
   return r.json()
@@ -100,4 +117,17 @@ export async function updateTask(id: string, body: { result?: unknown }): Promis
 
 export function getAudioUrl(taskId: string): string {
   return `${API_BASE}/tasks/${taskId}/audio`
+}
+
+const DEFAULT_MODELS = ['HeartMuLa-oss-3B', 'HeartMula-Pro-4B (v2.1)', 'HeartMula-Fast-2B']
+
+export async function getModelList(): Promise<string[]> {
+  try {
+    const r = await fetch(`${API_BASE}/models`)
+    if (!r.ok) return DEFAULT_MODELS
+    const list = await r.json()
+    return Array.isArray(list) && list.length > 0 ? list : DEFAULT_MODELS
+  } catch {
+    return DEFAULT_MODELS
+  }
 }
