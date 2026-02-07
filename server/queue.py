@@ -3,7 +3,6 @@ import queue
 import threading
 
 from server.config import CONCURRENCY
-from server import workers
 
 
 _task_queue: queue.Queue = queue.Queue()
@@ -23,10 +22,19 @@ def _worker_loop() -> None:
         task = get_task(task_id)
         if not task:
             continue
-        if task.type == "generate":
-            workers.run_generate_task(task_id)
-        elif task.type == "transcribe":
-            workers.run_transcribe_task(task_id)
+        
+        # Lazy import workers to avoid torch dependency at startup
+        try:
+            from server import workers
+            if task.type == "generate":
+                workers.run_generate_task(task_id)
+            elif task.type == "transcribe":
+                workers.run_transcribe_task(task_id)
+        except ImportError as e:
+            # Handle missing torch/heartlib gracefully
+            from server.store import update_task
+            update_task(task_id, status="failed", error_message=f"Worker dependency missing: {e}")
+        
         _task_queue.task_done()
 
 

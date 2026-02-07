@@ -4,6 +4,8 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
 
+# ==================== Task Schemas ====================
+
 class GenerateRequest(BaseModel):
     lyrics: str
     tags: str
@@ -47,3 +49,43 @@ class TaskListResponse(BaseModel):
 
 class TaskPatchRequest(BaseModel):
     result: Optional[Any] = None
+
+
+# ==================== Project Schemas ====================
+
+class ProjectCreate(BaseModel):
+    """Request body for creating a new project."""
+    title: str
+    genre: Optional[str] = ""
+    tags: Optional[List[str]] = []
+    status: Optional[str] = "Draft"
+    color: Optional[str] = "bg-primary"
+
+
+class ProjectUpdate(BaseModel):
+    """Request body for updating a project."""
+    title: Optional[str] = None
+    genre: Optional[str] = None
+    tags: Optional[List[str]] = None
+    duration: Optional[str] = None
+    status: Optional[str] = None
+    color: Optional[str] = None
+
+
+class ProjectResponse(BaseModel):
+    """Response model for a single project."""
+    id: str
+    title: str
+    genre: str
+    tags: List[str]
+    duration: str
+    status: str
+    color: str
+    created_at: str
+    updated_at: str
+
+
+class ProjectListResponse(BaseModel):
+    """Response model for project list."""
+    items: List[ProjectResponse]
+    total: int

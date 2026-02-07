@@ -1,9 +1,11 @@
-"""Task model and enums aligned with DB schema."""
+"""Task and Project models and enums aligned with DB schema."""
+import json
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 TaskType = Enum("TaskType", ["generate", "transcribe"])
 TaskStatus = Enum("TaskStatus", ["pending", "running", "completed", "failed"])
+ProjectStatus = Enum("ProjectStatus", ["Draft", "Generated", "Mastered"])
 
 
 def task_type_to_str(t: TaskType) -> str:
@@ -49,14 +51,70 @@ class Task:
 
     @classmethod
     def from_row(cls, row: Any) -> "Task":
-        return cls(
-            id=row["id"],
-            type=row["type"],
-            status=row["status"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-            params=row["params"],
-            output_audio_path=row["output_audio_path"],
-            result=row["result"],
-            error_message=row["error_message"],
-        )
+        # Support both dict (MySQL) and sqlite3.Row
+        if hasattr(row, 'keys'):
+            return cls(
+                id=row["id"],
+                type=row["type"],
+                status=row["status"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+                params=row["params"],
+                output_audio_path=row["output_audio_path"],
+                result=row["result"],
+                error_message=row["error_message"],
+            )
+        return cls(*row)
+
+
+class Project:
+    """In-memory project representation matching projects table."""
+
+    def __init__(
+        self,
+        id: str,
+        title: str,
+        genre: Optional[str],
+        tags: Optional[str],
+        duration: str,
+        status: str,
+        color: str,
+        created_at: str,
+        updated_at: str,
+    ):
+        self.id = id
+        self.title = title
+        self.genre = genre or ""
+        self._tags_raw = tags or "[]"
+        self.duration = duration or ""
+        self.status = status or "Draft"
+        self.color = color or "bg-primary"
+        self.created_at = created_at
+        self.updated_at = updated_at
+
+    @property
+    def tags(self) -> List[str]:
+        """Parse tags from JSON string."""
+        if isinstance(self._tags_raw, list):
+            return self._tags_raw
+        try:
+            return json.loads(self._tags_raw) if self._tags_raw else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    @classmethod
+    def from_row(cls, row: Any) -> "Project":
+        # Support both dict (MySQL) and sqlite3.Row
+        if hasattr(row, 'keys'):
+            return cls(
+                id=row["id"],
+                title=row["title"],
+                genre=row["genre"],
+                tags=row["tags"],
+                duration=row["duration"],
+                status=row["status"],
+                color=row["color"],
+                created_at=row["created_at"],
+                updated_at=row["updated_at"],
+            )
+        return cls(*row)
