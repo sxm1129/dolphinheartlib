@@ -36,10 +36,25 @@ Cybernetic dreams driving me insane
 I walk the streets of code and wire
 Burning with this digital desire...`;
 
+/** Section markers supported in lyrics (for "+ Section" insert). */
+const SECTION_MARKERS = ['[Intro]', '[Verse]', '[Verse 1]', '[Verse 2]', '[Prechorus]', '[Chorus]', '[Bridge]', '[Outro]'];
+
+/** Parse lyrics into sections: lines that are exactly [Label]. Returns { label, lineIndex } in order. */
+function parseLyricSections(text: string): { label: string; lineIndex: number }[] {
+  const lines = text.split(/\r?\n/);
+  const sections: { label: string; lineIndex: number }[] = [];
+  lines.forEach((line, i) => {
+    const m = line.match(/^\[([^\]]+)\]$/);
+    if (m) sections.push({ label: m[1].trim(), lineIndex: i });
+  });
+  return sections;
+}
+
 const Studio: React.FC = () => {
   const { t } = useTranslation();
   const { currentProject, currentProjectId, setCurrentProject } = useProject();
   const audioRef = useRef<HTMLAudioElement>(null);
+  const lyricsTextareaRef = useRef<HTMLTextAreaElement>(null);
   const currentProjectIdRef = useRef<string | null>(null);
   const isMountedRef = useRef(true);
 
@@ -60,6 +75,8 @@ const Studio: React.FC = () => {
   const [lyricsHistory, setLyricsHistory] = useState<Array<{text: string, timestamp: Date}>>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [lyricsLanguage, setLyricsLanguage] = useState<LyricsLanguage>(() => getLyricsLanguagePreference());
+  const [selectedSectionIndex, setSelectedSectionIndex] = useState(0);
+  const [showAddSectionMenu, setShowAddSectionMenu] = useState(false);
 
   // Audio Generation State
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
@@ -408,6 +425,45 @@ const Studio: React.FC = () => {
     setIsPlaying(false);
   };
 
+  // Sections from lyrics for toolbar
+  const lyricSections = parseLyricSections(lyrics);
+  const effectiveSectionIndex = lyricSections.length > 0
+    ? Math.min(selectedSectionIndex, lyricSections.length - 1)
+    : 0;
+
+  const insertSectionMarker = (marker: string) => {
+    const ta = lyricsTextareaRef.current;
+    const insert = `\n\n${marker}\n`;
+    if (ta) {
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
+      const before = lyrics.slice(0, start);
+      const after = lyrics.slice(end);
+      setLyrics(before + insert + after);
+      setShowAddSectionMenu(false);
+      requestAnimationFrame(() => {
+        const newPos = start + insert.length;
+        ta.setSelectionRange(newPos, newPos);
+        ta.focus();
+      });
+    } else {
+      setLyrics((prev) => prev.trimEnd() + insert);
+      setShowAddSectionMenu(false);
+    }
+  };
+
+  const scrollToSection = (lineIndex: number) => {
+    const ta = lyricsTextareaRef.current;
+    if (!ta) return;
+    const lines = lyrics.split(/\r?\n/);
+    let offset = 0;
+    for (let i = 0; i < lineIndex && i < lines.length; i++) offset += lines[i].length + 1;
+    ta.focus();
+    ta.setSelectionRange(offset, offset);
+    const lineHeight = 22;
+    ta.scrollTop = Math.max(0, (lineIndex * lineHeight) - ta.clientHeight / 2);
+  };
+
   // Handle audio playback with actual audio element
   const togglePlayback = () => {
     if (audioRef.current && audioUrl) {
@@ -532,8 +588,8 @@ const Studio: React.FC = () => {
         <aside className={`${showLeftPanel ? 'w-72' : 'w-0 hidden'} lg:w-72 lg:block bg-[#161b28] border-r border-slate-800 flex flex-col overflow-y-auto shrink-0 z-20 custom-scrollbar transition-all duration-200`}>
             <div className="p-4 space-y-6">
                 
-                {/* Model Config Group */}
-                <div className="border border-slate-800 rounded-lg overflow-hidden bg-surface-dark">
+                {/* Model Config Group - hidden per product requirement */}
+                <div className="hidden border border-slate-800 rounded-lg overflow-hidden bg-surface-dark">
                     <div className="w-full flex items-center justify-between p-3 bg-slate-800/50">
                         <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
                             <Wand2 className="w-3 h-3 text-primary" /> {t('studio.modelConfig')}
@@ -738,9 +794,54 @@ const Studio: React.FC = () => {
                         <button className="text-slate-400 hover:text-white p-1"><Redo className="w-4 h-4" /></button>
                     </div>
                     <div className="h-4 w-px bg-slate-700"></div>
-                    <div className="flex gap-2">
-                        <span className="bg-primary/20 text-primary border border-primary/30 text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider">{t('studio.verse1')}</span>
-                        <span className="bg-slate-800 text-slate-400 border border-slate-700 text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider hover:text-slate-200 cursor-pointer">{t('studio.addSection')}</span>
+                    <div className="flex gap-2 flex-wrap items-center">
+                        {lyricSections.length > 0 ? (
+                          lyricSections.map((sec, i) => (
+                            <button
+                              key={`${sec.lineIndex}-${sec.label}`}
+                              type="button"
+                              onClick={() => {
+                                setSelectedSectionIndex(i);
+                                scrollToSection(sec.lineIndex);
+                              }}
+                              className={`text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider border transition-colors ${
+                                i === effectiveSectionIndex
+                                  ? 'bg-primary/20 text-primary border-primary/30'
+                                  : 'bg-slate-800 text-slate-400 border-slate-700 hover:text-slate-200 hover:border-slate-600'
+                              }`}
+                            >
+                              {sec.label}
+                            </button>
+                          ))
+                        ) : (
+                          <span className="bg-slate-800/50 text-slate-500 border border-slate-700 text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider">{t('studio.noSections') || '无章节'}</span>
+                        )}
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setShowAddSectionMenu((v) => !v)}
+                            className="bg-slate-800 text-slate-400 border border-slate-700 text-[10px] px-2 py-0.5 rounded uppercase font-bold tracking-wider hover:text-slate-200 hover:border-slate-600 cursor-pointer flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" /> {t('studio.addSection')}
+                          </button>
+                          {showAddSectionMenu && (
+                            <>
+                              <div className="fixed inset-0 z-40" onClick={() => setShowAddSectionMenu(false)} aria-hidden />
+                              <div className="absolute left-0 top-full mt-1 py-1 min-w-[120px] bg-[#161b28] border border-slate-700 rounded-lg shadow-xl z-50">
+                                {SECTION_MARKERS.map((marker) => (
+                                  <button
+                                    key={marker}
+                                    type="button"
+                                    onClick={() => insertSectionMarker(marker)}
+                                    className="w-full text-left text-[10px] px-3 py-2 text-slate-300 hover:bg-slate-700/80 hover:text-white rounded-none first:rounded-t-lg last:rounded-b-lg"
+                                  >
+                                    {marker}
+                                  </button>
+                                ))}
+                              </div>
+                            </>
+                          )}
+                        </div>
                     </div>
                 </div>
                 <div className="flex items-center gap-3">
@@ -812,7 +913,8 @@ const Studio: React.FC = () => {
                             </div>
                         </div>
                         <div className="flex-1 min-h-0">
-                            <textarea 
+                            <textarea
+                                ref={lyricsTextareaRef}
                                 className="w-full h-full bg-transparent p-6 outline-none font-mono text-sm leading-relaxed resize-none text-slate-300 placeholder-slate-600 focus:ring-0 border-0"
                                 value={lyrics}
                                 onChange={(e) => setLyrics(e.target.value)}

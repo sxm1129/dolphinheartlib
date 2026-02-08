@@ -20,6 +20,7 @@ const getShareIdFromPath = (): string | null => {
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>(ViewMode.LIBRARY);
   const [shareId, setShareId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
     const id = getShareIdFromPath();
@@ -39,7 +40,16 @@ const AppContent: React.FC = () => {
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background-dark text-slate-200 font-sans selection:bg-primary/30">
-      <Sidebar currentView={currentView} onChangeView={setCurrentView} />
+      <div
+        className={`flex-shrink-0 h-full border-r border-slate-800 bg-[#0f1016] overflow-hidden transition-[width] duration-200 ease-out z-20 ${sidebarOpen ? 'w-64' : 'w-[4.5rem]'}`}
+      >
+        <Sidebar
+          currentView={currentView}
+          onChangeView={setCurrentView}
+          open={sidebarOpen}
+          onToggle={() => setSidebarOpen((v) => !v)}
+        />
+      </div>
 
       <div className="flex-1 flex flex-col h-full relative min-w-0">
         <div className={currentView === ViewMode.LIBRARY ? viewContainerClass : hiddenClass}>

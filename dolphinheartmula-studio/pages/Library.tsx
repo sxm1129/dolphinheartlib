@@ -219,7 +219,7 @@ const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
                onChange={(e) => setSelectedGenre(e.target.value || null)}
                className="flex items-center gap-2 px-3 py-2 bg-[#1c1a2e] border border-slate-700/50 rounded-lg text-sm text-slate-300 hover:bg-[#25223a] hover:text-white transition-colors"
              >
-                <option value="">{t('lib.allModels')}</option>
+                <option value="">{t('lib.allStyles')}</option>
                 {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
              </select>
              <button className="flex items-center gap-2 px-3 py-2 bg-[#1c1a2e] border border-slate-700/50 rounded-lg text-sm text-slate-300 hover:bg-[#25223a] hover:text-white transition-colors">
