@@ -14,7 +14,6 @@ import {
 } from 'lucide-react';
 import { useTranslation } from '../contexts/LanguageContext';
 import { useAuth } from '../contexts/AuthContext';
-import LoginModal from './LoginModal';
 
 interface SidebarProps {
   currentView: ViewMode;
@@ -25,8 +24,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = true, onToggle }) => {
   const { t, language, setLanguage } = useTranslation();
-  const { user, logout, clearError } = useAuth();
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  const { user, logout } = useAuth();
 
   const navItemClass = (active: boolean) =>
     active
@@ -41,7 +39,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = tru
   const itemBaseClass = 'flex items-center rounded-lg transition-all duration-200 cursor-pointer group border border-transparent';
 
   return (
-    <>
     <div className={`flex flex-col justify-between h-full ${iconOnly ? 'w-[4.5rem] p-2' : 'w-64 min-w-[16rem] p-4'}`}>
       <div className="flex flex-col gap-6">
         {/* Brand + collapse/expand */}
@@ -147,20 +144,16 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = tru
             )}
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={() => setShowLoginModal(true)}
+          <div
             className={`flex items-center rounded-lg hover:bg-white/5 cursor-pointer bg-slate-900/50 border border-slate-800 w-full ${iconOnly ? 'p-2 justify-center' : 'gap-3 px-3 py-2'}`}
             title={iconOnly ? (t('nav.login') || '登录') : undefined}
           >
             <LogIn className="w-5 h-5 shrink-0 text-slate-400" />
             {!iconOnly && <span className="text-sm font-medium text-slate-300">{t('nav.login') || '登录'}</span>}
-          </button>
+          </div>
         )}
       </div>
     </div>
-    {showLoginModal && <LoginModal onClose={() => { setShowLoginModal(false); clearError(); }} />}
-    </>
   );
 };
 

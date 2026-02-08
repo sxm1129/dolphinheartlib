@@ -256,11 +256,7 @@ def _add_project_id_to_tasks() -> None:
             print(f"Warning: Could not add project_id to tasks: {e}")
 
 
-def _hash_password(password: str) -> str:
-    """Hash password with a fixed salt (simple auth)."""
-    import hashlib
-    salt = "heartlib"
-    return hashlib.sha256((salt + password).encode()).hexdigest()
+
 
 
 def _seed_admin_user() -> None:
@@ -269,11 +265,13 @@ def _seed_admin_user() -> None:
         cur = conn.execute("SELECT 1 FROM users LIMIT 1")
         if cur.fetchone() is not None:
             return
+        # Import bcrypt hash from auth utils
+        from server.utils.auth import hash_password
         import uuid
-        from datetime import datetime
+        from datetime import datetime, timezone
         uid = str(uuid.uuid4())
-        now = datetime.utcnow().isoformat() + "Z"
-        password_hash = _hash_password("Admin123!")
+        now = datetime.now(timezone.utc).isoformat()
+        password_hash = hash_password("Admin123!")
         if USE_MYSQL:
             conn.execute(
                 "INSERT INTO users (id, username, password_hash, display_name, plan, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
@@ -285,35 +283,10 @@ def _seed_admin_user() -> None:
                 (uid, "admin", password_hash, "Admin", "Pro", now),
             )
         conn.commit()
-        print("Default admin user created (username: admin).")
+        print("✅ Default admin user created (username: admin, password: Admin123!)")
 
 
-def verify_user(username: str, password: str) -> Optional[dict]:
-    """Verify credentials and return user dict (id, username, display_name, plan) or None."""
-    h = _hash_password(password)
-    with get_connection() as conn:
-        if USE_MYSQL:
-            cur = conn.execute(
-                "SELECT id, username, display_name, plan FROM users WHERE username = %s AND password_hash = %s",
-                (username, h),
-            )
-        else:
-            cur = conn.execute(
-                "SELECT id, username, display_name, plan FROM users WHERE username = ? AND password_hash = ?",
-                (username, h),
-            )
-        row = cur.fetchone()
-    if not row:
-        return None
-    # row is dict (MySQL DictCursor) or sqlite3.Row
-    keys = row.keys() if hasattr(row, "keys") else ["id", "username", "display_name", "plan"]
-    d = {k: row[k] for k in keys}
-    return {
-        "id": d["id"],
-        "username": d["username"],
-        "display_name": d.get("display_name") or "",
-        "plan": d.get("plan") or "Pro",
-    }
+
 
 
 def init_db() -> None:

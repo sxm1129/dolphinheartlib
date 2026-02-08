@@ -4,11 +4,12 @@ import Library from './pages/Library';
 import Studio from './pages/Studio';
 import Transcribe from './pages/Transcribe';
 import Share from './pages/Share';
+import Login from './pages/Login';
 import { ViewMode } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProjectProvider } from './contexts/ProjectContext';
 import { PageStateProvider } from './contexts/PageStateContext';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { ToastProvider } from './components/Toast';
 
 // Simple path-based routing for share pages
@@ -19,6 +20,7 @@ const getShareIdFromPath = (): string | null => {
 };
 
 const AppContent: React.FC = () => {
+  const { user, loading } = useAuth();
   const [currentView, setCurrentView] = useState<ViewMode>(ViewMode.LIBRARY);
   const [shareId, setShareId] = useState<string | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(() =>
@@ -30,9 +32,23 @@ const AppContent: React.FC = () => {
     setShareId(id);
   }, []);
 
-  // If on a share page, render Share component
+  // If on a share page, render Share component (public access)
   if (shareId) {
     return <Share shareId={shareId} />;
+  }
+
+  // Show loading state while checking authentication
+  if (loading) {
+    return (
+      <div className="min-h-screen w-full flex items-center justify-center bg-background-dark text-slate-200">
+        <div className="text-lg">Loading...</div>
+      </div>
+    );
+  }
+
+  // Show login if not authenticated
+  if (!user) {
+    return <Login />;
   }
 
   // Page state preservation (two layers):

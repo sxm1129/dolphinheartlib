@@ -2,3 +2,5 @@ fastapi
 uvicorn
 pymysql
 python-dotenv
+pyjwt
+passlib[bcrypt]

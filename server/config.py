@@ -27,6 +27,11 @@ OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
 OPENROUTER_MODEL_NAME = os.environ.get("OPENROUTER_MODEL_NAME", "google/gemini-2.0-flash-exp")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 
+# JWT Configuration
+JWT_SECRET_KEY = os.environ.get("JWT_SECRET_KEY", "dev-secret-key-change-in-production")
+JWT_ALGORITHM = "HS256"
+JWT_EXPIRE_MINUTES = int(os.environ.get("JWT_EXPIRE_MINUTES", "43200"))  # 30 days default
+
 # Use MySQL if DB_HOST is set, otherwise SQLite
 USE_MYSQL = bool(DB_HOST)
 
