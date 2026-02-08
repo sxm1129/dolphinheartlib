@@ -3,7 +3,7 @@ import {
   Undo, Redo, Play, Pause, SkipBack, SkipForward, 
   Mic, Volume2, Settings, Download, 
   Wand2, Music, Layers, Edit3, Share2, Loader2, History,
-  Smile, Zap, Save, Plus, X, Check, Trash2, RotateCcw
+  Smile, Zap, Plus, X, RotateCcw
 } from 'lucide-react';
 import WaveformViz from '../components/WaveformViz';
 import { GoogleGenAI } from "@google/genai";
@@ -21,23 +21,9 @@ const TAG_GROUPS: { group: string; tags: { label: string; value: string }[] }[] 
   { group: '场景 / 人声', tags: [{ label: '婚礼', value: 'wedding' }, { label: '男声', value: 'male vocal' }, { label: '女声', value: 'female vocal' }] },
 ];
 
-interface GenPreset {
-  id: string;
-  name: string;
-  checkpoint: string;
-  temperature: number;
-  topP: number;
-}
-
-const DEFAULT_PRESETS: GenPreset[] = [
-  { id: 'p1', name: 'Balanced (Default)', checkpoint: 'HeartMula-Pro-4B (v2.1)', temperature: 0.85, topP: 0.9 },
-  { id: 'p2', name: 'High Creativity', checkpoint: 'HeartMula-Pro-4B (v2.1)', temperature: 1.1, topP: 0.95 },
-  { id: 'p3', name: 'Faster (2B)', checkpoint: 'HeartMula-Fast-2B', temperature: 0.7, topP: 0.8 },
-];
-
-const PRESETS_STORAGE_KEY = 'dolphinheart_studio_presets';
-/** Default length for new generation (ms). Used so new tasks are not limited by previously loaded short clip duration. */
-const DEFAULT_GENERATION_MS = 240_000;
+/** Default max audio length (ms) and cfg_scale when not restored from task. */
+const DEFAULT_MAX_AUDIO_LENGTH_MS = 240_000;
+const DEFAULT_CFG_SCALE = 1.5;
 
 const Studio: React.FC = () => {
   const { t } = useTranslation();
@@ -82,26 +68,13 @@ Burning with this digital desire...`);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(180); // 3:00 default duration
 
-  // Gen Config & Preset State
+  // Gen Config: model (checkpoint), temperature, topP, max_audio_length_ms, cfg_scale
   const [checkpoint, setCheckpoint] = useState('HeartMula-Pro-4B (v2.1)');
   const [temperature, setTemperature] = useState(0.85);
   const [topP, setTopP] = useState(0.9);
+  const [maxAudioLengthMs, setMaxAudioLengthMs] = useState(DEFAULT_MAX_AUDIO_LENGTH_MS);
+  const [cfgScale, setCfgScale] = useState(DEFAULT_CFG_SCALE);
 
-  const [presets, setPresets] = useState<GenPreset[]>(() => {
-    try {
-      const raw = localStorage.getItem(PRESETS_STORAGE_KEY);
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_PRESETS;
-      }
-    } catch {
-      // ignore
-    }
-    return DEFAULT_PRESETS;
-  });
-  const [selectedPresetId, setSelectedPresetId] = useState<string>('p1');
-  const [showSaveInput, setShowSaveInput] = useState(false);
-  const [newPresetName, setNewPresetName] = useState('');
   const [modelList, setModelList] = useState<string[]>([]);
   const [modelListLoading, setModelListLoading] = useState(false);
   const [taskLoading, setTaskLoading] = useState(false);
@@ -148,19 +121,55 @@ Burning with this digital desire...`);
     getTasks({
       page: 1,
       page_size: 1,
-      status: 'completed',
       type: 'generate',
       ...(currentProjectId ? { project_id: currentProjectId } : {}),
     })
       .then((res) => {
         if (currentProjectIdRef.current !== requestedId) return;
         const task = res.items?.[0];
-        if (task?.id && task.output_audio_path) {
-          setAudioTaskId(task.id);
-          setAudioUrl(getAudioUrl(task.id));
-          setAudioTaskStatus('completed');
-          const ms = (task.params as { max_audio_length_ms?: number })?.max_audio_length_ms;
-          if (ms) setDuration(ms / 1000);
+        if (requestedId) {
+          if (!task?.id) {
+            setLyrics('');
+            setTags('');
+            setMaxAudioLengthMs(DEFAULT_MAX_AUDIO_LENGTH_MS);
+            setCfgScale(DEFAULT_CFG_SCALE);
+            setAudioTaskId(null);
+            setAudioUrl(null);
+            setAudioTaskStatus('');
+            return;
+          }
+          const params = task.params as { lyrics?: string; tags?: string; max_audio_length_ms?: number; cfg_scale?: number } | undefined;
+          if (params?.lyrics && typeof params.lyrics === 'string' && params.lyrics.trim()) {
+            setLyrics(params.lyrics.trim());
+          } else {
+            setLyrics('');
+          }
+          if (params?.tags != null && typeof params.tags === 'string') {
+            setTags(params.tags.trim());
+          } else {
+            setTags('');
+          }
+          if (params?.max_audio_length_ms != null && Number.isFinite(params.max_audio_length_ms)) {
+            setMaxAudioLengthMs(Math.max(8000, Math.min(600000, params.max_audio_length_ms)));
+          } else {
+            setMaxAudioLengthMs(DEFAULT_MAX_AUDIO_LENGTH_MS);
+          }
+          if (params?.cfg_scale != null && Number.isFinite(params.cfg_scale)) {
+            setCfgScale(Math.max(1, Math.min(3, params.cfg_scale)));
+          } else {
+            setCfgScale(DEFAULT_CFG_SCALE);
+          }
+          if (task.status === 'completed' && task.output_audio_path) {
+            setAudioTaskId(task.id);
+            setAudioUrl(getAudioUrl(task.id));
+            setAudioTaskStatus('completed');
+            const ms = params?.max_audio_length_ms;
+            if (ms) setDuration(ms / 1000);
+          } else {
+            setAudioTaskId(null);
+            setAudioUrl(null);
+            setAudioTaskStatus('');
+          }
         }
       })
       .catch(() => {})
@@ -182,14 +191,6 @@ Burning with this digital desire...`);
         }
       });
   }, [currentProjectId, currentProject, setCurrentProject]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(PRESETS_STORAGE_KEY, JSON.stringify(presets));
-    } catch {
-      // ignore
-    }
-  }, [presets]);
 
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
@@ -276,42 +277,6 @@ Burning with this digital desire...`);
     }
   };
 
-  // Preset Handlers
-  const handlePresetChange = (presetId: string) => {
-    setSelectedPresetId(presetId);
-    const preset = presets.find(p => p.id === presetId);
-    if (preset) {
-        setCheckpoint(preset.checkpoint ?? 'HeartMula-Pro-4B (v2.1)');
-        setTemperature(preset.temperature ?? 0.85);
-        setTopP(preset.topP ?? 0.9);
-    }
-  };
-
-  const handleSavePreset = () => {
-    if (!newPresetName.trim()) return;
-    const newId = `custom-${Date.now()}`;
-    const newPreset: GenPreset = {
-        id: newId,
-        name: newPresetName,
-        checkpoint,
-        temperature,
-        topP,
-    };
-    setPresets([...presets, newPreset]);
-    setSelectedPresetId(newId);
-    setShowSaveInput(false);
-    setNewPresetName('');
-  };
-
-  const handleDeletePreset = (id: string) => {
-    if (['p1', 'p2', 'p3'].includes(id)) return; // Protect defaults
-    const newPresets = presets.filter(p => p.id !== id);
-    setPresets(newPresets);
-    if (selectedPresetId === id) {
-        handlePresetChange('p1');
-    }
-  };
-
   // Handle audio generation
   const handleGenerateAudio = async () => {
     if (isGeneratingAudio || !lyrics.trim()) return;
@@ -324,13 +289,15 @@ Burning with this digital desire...`);
     try {
       // topk: heartlib expects integer; UI topP 0–1 mapped to 1–100, clamped to avoid invalid values
       const topk = Math.min(100, Math.max(1, Math.round(topP * 100)));
+      const ms = Math.max(8000, Math.min(600000, maxAudioLengthMs));
+      const cfg = Math.max(1, Math.min(3, cfgScale));
       const { task_id } = await generateAudio({
         lyrics: lyrics,
         tags: tags.trim() || `${genre}, ${mood}`,
         temperature: temperature,
         topk,
-        cfg_scale: 1.5,
-        max_audio_length_ms: DEFAULT_GENERATION_MS,
+        cfg_scale: cfg,
+        max_audio_length_ms: ms,
         version: checkpoint,
         project_id: currentProjectId || undefined,
       });
@@ -350,7 +317,7 @@ Burning with this digital desire...`);
       if (completedTask.status === 'completed') {
         setAudioUrl(getAudioUrl(task_id));
         setAudioTaskStatus('completed');
-        const durationSec = DEFAULT_GENERATION_MS / 1000;
+        const durationSec = ms / 1000;
         setDuration(durationSec);
         const durationStr = `${Math.floor(durationSec / 60)}:${String(Math.floor(durationSec % 60)).padStart(2, '0')}`;
         if (currentProjectId) {
@@ -565,62 +532,6 @@ Burning with this digital desire...`);
                         </span>
                     </div>
                     <div className="p-3 space-y-4 border-t border-slate-800">
-                        
-                        {/* Preset Manager */}
-                        <div className="space-y-2">
-                            <div className="flex items-center justify-between">
-                                <label className="text-[10px] font-medium text-slate-400 uppercase">{t('studio.preset')}</label>
-                                {!showSaveInput && (
-                                    <button 
-                                        onClick={() => setShowSaveInput(true)} 
-                                        className="text-[10px] flex items-center gap-1 text-primary hover:text-white transition-colors"
-                                    >
-                                        <Save className="w-3 h-3" /> {t('studio.save')}
-                                    </button>
-                                )}
-                            </div>
-
-                            {showSaveInput ? (
-                                <div className="flex items-center gap-1 animate-in fade-in zoom-in duration-200">
-                                    <input 
-                                        type="text" 
-                                        value={newPresetName}
-                                        onChange={(e) => setNewPresetName(e.target.value)}
-                                        placeholder="Name..."
-                                        className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white focus:border-primary focus:outline-none"
-                                        autoFocus
-                                        onKeyDown={(e) => e.key === 'Enter' && handleSavePreset()}
-                                    />
-                                    <button onClick={handleSavePreset} className="p-1 bg-primary text-white rounded hover:bg-primary-hover"><Check className="w-3 h-3" /></button>
-                                    <button onClick={() => setShowSaveInput(false)} className="p-1 bg-slate-700 text-slate-300 rounded hover:bg-slate-600"><X className="w-3 h-3" /></button>
-                                </div>
-                            ) : (
-                                <div className="space-y-2">
-                                    <select 
-                                        value={selectedPresetId} 
-                                        onChange={(e) => handlePresetChange(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer"
-                                    >
-                                        {presets.map(p => (
-                                            <option key={p.id} value={p.id}>{p.name}</option>
-                                        ))}
-                                    </select>
-                                    
-                                    {!['p1', 'p2', 'p3'].includes(selectedPresetId) && (
-                                        <button 
-                                            onClick={() => handleDeletePreset(selectedPresetId)}
-                                            className="w-full text-[10px] text-red-400 hover:text-red-300 flex items-center justify-center gap-1 border border-red-900/30 bg-red-900/10 rounded py-1 transition-colors"
-                                        >
-                                            <Trash2 className="w-3 h-3" /> {t('studio.delete')}
-                                        </button>
-                                    )}
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="h-px bg-slate-800 w-full my-1"></div>
-
-                        {/* Controls */}
                         <div>
                             <div className="flex justify-between mb-1">
                                 <label className="text-[10px] uppercase text-slate-400">{t('studio.creativity')}</label>
@@ -647,6 +558,34 @@ Burning with this digital desire...`);
                                 onChange={(e) => setTopP(parseFloat(e.target.value))}
                                 className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary" 
                             />
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase">{t('studio.maxAudioLengthMs')}</label>
+                            <input
+                                type="number"
+                                min={8000}
+                                max={600000}
+                                step={1000}
+                                value={maxAudioLengthMs}
+                                onChange={(e) => setMaxAudioLengthMs(Math.max(8000, Math.min(600000, Number(e.target.value) || 240000)))}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-0.5">{t('studio.maxAudioLengthMsHint')}</p>
+                        </div>
+
+                        <div>
+                            <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase">cfg_scale</label>
+                            <input
+                                type="number"
+                                step={0.1}
+                                min={1}
+                                max={3}
+                                value={cfgScale}
+                                onChange={(e) => setCfgScale(Math.max(1, Math.min(3, Number(e.target.value) || 1.5)))}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
+                            />
+                            <p className="text-[10px] text-slate-500 mt-0.5">{t('studio.cfgScaleHint')}</p>
                         </div>
                     </div>
                 </div>

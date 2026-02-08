@@ -167,6 +167,52 @@ export const getAudioUrl = (taskId: string): string => {
   return `${API_BASE}/tasks/${taskId}/audio`;
 };
 
+export const updateTask = async (taskId: string, body: { result?: unknown }): Promise<TaskResponse> => {
+  const response = await fetch(`${API_BASE}/tasks/${taskId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!response.ok) throw new Error(`Failed to update task: ${response.statusText}`);
+  return response.json();
+};
+
+// ==================== Transcribe API ====================
+
+export interface TranscribeParams {
+  max_new_tokens?: number;
+  num_beams?: number;
+  task?: string;
+  condition_on_prev_tokens?: boolean;
+  compression_ratio_threshold?: number;
+  logprob_threshold?: number;
+  no_speech_threshold?: number;
+}
+
+export const createTranscribe = async (
+  file: File,
+  params: TranscribeParams
+): Promise<{ task_id: string }> => {
+  const form = new FormData();
+  form.append('file', file);
+  form.append('max_new_tokens', String(params.max_new_tokens ?? 256));
+  form.append('num_beams', String(params.num_beams ?? 2));
+  form.append('task', params.task ?? 'transcribe');
+  form.append('condition_on_prev_tokens', String(params.condition_on_prev_tokens ?? false));
+  form.append('compression_ratio_threshold', String(params.compression_ratio_threshold ?? 1.8));
+  form.append('logprob_threshold', String(params.logprob_threshold ?? -1.0));
+  form.append('no_speech_threshold', String(params.no_speech_threshold ?? 0.4));
+  const response = await fetch(`${API_BASE}/tasks/transcribe`, {
+    method: 'POST',
+    body: form,
+  });
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text || `Transcribe failed: ${response.statusText}`);
+  }
+  return response.json();
+};
+
 // Poll task status until completed or failed
 export const pollTaskStatus = async (
   taskId: string,

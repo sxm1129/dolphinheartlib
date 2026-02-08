@@ -7,6 +7,7 @@ import {
   Heart, 
   Settings, 
   Disc3,
+  Mic,
   LogOut,
   Languages
 } from 'lucide-react';
@@ -58,6 +59,14 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
           >
             <Disc3 className={`w-5 h-5 ${currentView === ViewMode.STUDIO ? 'text-primary' : 'group-hover:text-primary'}`} />
             <span className="text-sm font-medium">{t('nav.studio')}</span>
+          </div>
+
+          <div 
+            className={navItemClass(currentView === ViewMode.TRANSCRIBE)}
+            onClick={() => onChangeView(ViewMode.TRANSCRIBE)}
+          >
+            <Mic className={`w-5 h-5 ${currentView === ViewMode.TRANSCRIBE ? 'text-primary' : 'group-hover:text-primary'}`} />
+            <span className="text-sm font-medium">{t('nav.transcribe')}</span>
           </div>
 
           <div 

@@ -37,6 +37,7 @@ export interface GenConfig {
 export enum ViewMode {
   LIBRARY = 'LIBRARY',
   STUDIO = 'STUDIO',
+  TRANSCRIBE = 'TRANSCRIBE',
   AUDIO_LAB = 'AUDIO_LAB'
 }
 

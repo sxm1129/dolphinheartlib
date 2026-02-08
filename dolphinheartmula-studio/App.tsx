@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import Sidebar from './components/Sidebar';
 import Library from './pages/Library';
 import Studio from './pages/Studio';
+import Transcribe from './pages/Transcribe';
 import AudioLab from './pages/AudioLab';
 import { ViewMode } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
@@ -16,6 +17,8 @@ const AppContent: React.FC = () => {
         return <Library setCurrentView={setCurrentView} />;
       case ViewMode.STUDIO:
         return <Studio />;
+      case ViewMode.TRANSCRIBE:
+        return <Transcribe />;
       case ViewMode.AUDIO_LAB:
         return <AudioLab />;
       default:
