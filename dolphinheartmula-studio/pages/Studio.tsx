@@ -64,10 +64,19 @@ const Studio: React.FC = () => {
   const [lyricPrompt, setLyricPrompt] = useState("");
   const [genre, setGenre] = useState("Electronic");
   const [mood, setMood] = useState("Dark");
-  const appendTag = (value: string) => {
+  const toggleTag = (value: string) => {
     const v = value.trim();
     if (!v) return;
-    setTags((prev) => (prev ? `${prev},${v}` : v));
+    const key = v.toLowerCase();
+    setTags((prev) => {
+      const parts = (prev || '').split(',').map((s) => s.trim()).filter(Boolean);
+      const idx = parts.findIndex((p) => p.toLowerCase() === key);
+      if (idx >= 0) {
+        parts.splice(idx, 1);
+        return parts.join(',');
+      }
+      return parts.length ? `${prev},${v}` : v;
+    });
   };
 
   const [isGeneratingLyrics, setIsGeneratingLyrics] = useState(false);
@@ -653,7 +662,7 @@ const Studio: React.FC = () => {
                                                 <button
                                                     key={value}
                                                     type="button"
-                                                    onClick={() => appendTag(value)}
+                                                    onClick={() => toggleTag(value)}
                                                     className={`px-2 py-0.5 text-[10px] rounded border transition-colors ${
                                                         selected
                                                             ? 'bg-primary/20 border-primary text-primary'
