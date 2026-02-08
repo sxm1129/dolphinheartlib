@@ -1,16 +1,14 @@
 #!/usr/bin/env bash
 # HeartLib service control: start/stop/status/restart
-# studio=dolphinheartmula-studio:10000, frontend=frontend/:10002, backend:10001
-# Usage: ./server.sh <start|stop|status|restart> <studio|frontend|backend|all>
+# studio=dolphinheartmula-studio:10000, backend:10001
+# Usage: ./server.sh <start|stop|status|restart> <studio|backend|all>
 
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 STUDIO_PORT=10000
-FRONTEND_PORT=10002
 BACKEND_PORT=10001
 PID_DIR="${ROOT}/.server"
 STUDIO_PID="${PID_DIR}/studio.pid"
-FRONTEND_PID="${PID_DIR}/frontend.pid"
 BACKEND_PID="${PID_DIR}/backend.pid"
 
 mkdir -p "$PID_DIR"
@@ -66,22 +64,6 @@ start_studio() {
   fi
 }
 
-start_frontend() {
-  if port_in_use "$FRONTEND_PORT" >/dev/null; then
-    echo "Frontend already running on port $FRONTEND_PORT"
-    return 0
-  fi
-  echo "Starting frontend on port $FRONTEND_PORT ..."
-  (cd "$ROOT/frontend" && npm run dev) &
-  echo $! > "$FRONTEND_PID"
-  sleep 2
-  if port_in_use "$FRONTEND_PORT" >/dev/null; then
-    echo "Frontend started (port $FRONTEND_PORT)"
-  else
-    echo "Frontend may still be starting; check logs."
-  fi
-}
-
 start_backend() {
   if port_in_use "$BACKEND_PORT" >/dev/null; then
     echo "Backend already running on port $BACKEND_PORT"
@@ -109,12 +91,6 @@ stop_studio() {
   echo "Studio stopped."
 }
 
-stop_frontend() {
-  kill_port "$FRONTEND_PORT"
-  rm -f "$FRONTEND_PID"
-  echo "Frontend stopped."
-}
-
 stop_backend() {
   kill_port "$BACKEND_PORT"
   rm -f "$BACKEND_PID"
@@ -124,27 +100,24 @@ stop_backend() {
 cmd_start() {
   case "$1" in
     studio)    start_studio ;;
-    frontend)  start_frontend ;;
     backend)   start_backend ;;
-    all)       start_backend; start_studio; start_frontend ;;
-    *)         echo "Unknown target: $1. Use studio|frontend|backend|all"; exit 1 ;;
+    all)       start_backend; start_studio ;;
+    *)         echo "Unknown target: $1. Use studio|backend|all"; exit 1 ;;
   esac
 }
 
 cmd_stop() {
   case "$1" in
     studio)    stop_studio ;;
-    frontend)  stop_frontend ;;
     backend)   stop_backend ;;
-    all)       stop_studio; stop_frontend; stop_backend ;;
-    *)         echo "Unknown target: $1. Use studio|frontend|backend|all"; exit 1 ;;
+    all)       stop_studio; stop_backend ;;
+    *)         echo "Unknown target: $1. Use studio|backend|all"; exit 1 ;;
   esac
 }
 
 cmd_status() {
   echo "---"
   print_status "Studio (dolphinheartmula-studio)" "$STUDIO_PORT" || true
-  print_status "Frontend (frontend/)"            "$FRONTEND_PORT" || true
   print_status "Backend"                         "$BACKEND_PORT"  || true
   echo "---"
 }
@@ -152,10 +125,9 @@ cmd_status() {
 cmd_restart() {
   case "$1" in
     studio)    stop_studio; start_studio ;;
-    frontend)  stop_frontend; start_frontend ;;
     backend)   stop_backend; start_backend ;;
-    all)       stop_studio; stop_frontend; stop_backend; start_backend; start_studio; start_frontend ;;
-    *)         echo "Unknown target: $1. Use studio|frontend|backend|all"; exit 1 ;;
+    all)       stop_studio; stop_backend; start_backend; start_studio ;;
+    *)         echo "Unknown target: $1. Use studio|backend|all"; exit 1 ;;
   esac
 }
 
@@ -168,11 +140,10 @@ case "$ACTION" in
   status)  cmd_status ;;
   restart) cmd_restart "$TARGET" ;;
   *)
-    echo "Usage: $0 <start|stop|status|restart> [studio|frontend|backend|all]"
+    echo "Usage: $0 <start|stop|status|restart> [studio|backend|all]"
     echo "  studio   = dolphinheartmula-studio (port $STUDIO_PORT)"
-    echo "  frontend = frontend/ (port $FRONTEND_PORT)"
     echo "  backend  = port $BACKEND_PORT"
-    echo "  all      = backend + studio + frontend (default)"
+    echo "  all      = backend + studio (default)"
     exit 1
     ;;
 esac

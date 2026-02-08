@@ -42,3 +42,30 @@ def list_models() -> list[str]:
     result = sorted(names)
     _models_cache = (result, now)
     return result
+
+
+@router.get("/gpu")
+def get_gpu_info() -> dict:
+    """Return GPU memory usage info.
+    Returns used/total VRAM in GB if CUDA available, else indicates CPU mode.
+    """
+    try:
+        import torch
+        if torch.cuda.is_available():
+            device = torch.cuda.current_device()
+            total = torch.cuda.get_device_properties(device).total_memory / (1024 ** 3)
+            allocated = torch.cuda.memory_allocated(device) / (1024 ** 3)
+            reserved = torch.cuda.memory_reserved(device) / (1024 ** 3)
+            return {
+                "available": True,
+                "device_name": torch.cuda.get_device_name(device),
+                "total_gb": round(total, 1),
+                "used_gb": round(reserved, 1),
+                "allocated_gb": round(allocated, 1),
+            }
+        else:
+            return {"available": False, "message": "CUDA not available, running on CPU"}
+    except ImportError:
+        return {"available": False, "message": "PyTorch not installed"}
+    except Exception as e:
+        return {"available": False, "message": str(e)}

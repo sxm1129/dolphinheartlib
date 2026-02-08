@@ -257,6 +257,46 @@ export const getModelList = async (): Promise<string[]> => {
   }
 };
 
+export interface GpuInfo {
+  available: boolean;
+  device_name?: string;
+  total_gb?: number;
+  used_gb?: number;
+  allocated_gb?: number;
+  message?: string;
+}
+
+export const getGpuInfo = async (): Promise<GpuInfo> => {
+  try {
+    const response = await fetch(`${API_BASE}/models/gpu`);
+    if (!response.ok) return { available: false, message: 'API Error' };
+    return await response.json();
+  } catch {
+    return { available: false, message: 'Network Error' };
+  }
+};
+
+
+export interface LyricsGenerateRequest {
+  language: string;
+  genre: string;
+  mood: string;
+  topic?: string;
+}
+
+export const generateLyrics = async (params: LyricsGenerateRequest): Promise<{ lyrics: string }> => {
+  const response = await fetch(`${API_BASE}/lyrics/generate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`Failed to generate lyrics: ${response.status} ${errorBody}`);
+  }
+  return response.json();
+};
+
 // ==================== File Upload API ====================
 
 export interface UploadResponse {
@@ -292,4 +332,58 @@ export const deleteUploadedFile = async (fileId: string): Promise<void> => {
   if (!response.ok) {
     throw new Error(`Failed to delete file: ${response.statusText}`);
   }
+};
+
+// ==================== Share API ====================
+
+export interface ShareCreateRequest {
+  task_id: string;
+  title?: string;
+}
+
+export interface ShareResponse {
+  id: string;
+  task_id: string;
+  title?: string;
+  created_at: string;
+  view_count: number;
+}
+
+export interface ShareDetailResponse extends ShareResponse {
+  task?: {
+    id: string;
+    status: string;
+    output_audio_path?: string;
+    params?: {
+      lyrics?: string;
+      tags?: string;
+      max_audio_length_ms?: number;
+    };
+    created_at: string;
+  };
+}
+
+export const createShare = async (taskId: string, title?: string): Promise<ShareResponse> => {
+  const response = await fetch(`${API_BASE}/shares`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ task_id: taskId, title }),
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `Failed to create share: ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const getShare = async (shareId: string): Promise<ShareDetailResponse> => {
+  const response = await fetch(`${API_BASE}/shares/${shareId}`);
+  if (!response.ok) {
+    throw new Error(`Failed to get share: ${response.status} ${response.statusText}`);
+  }
+  return response.json();
+};
+
+export const getShareAudioUrl = (taskId: string): string => {
+  return `${API_BASE}/tasks/${taskId}/audio`;
 };

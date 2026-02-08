@@ -1,15 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Sidebar from './components/Sidebar';
 import Library from './pages/Library';
 import Studio from './pages/Studio';
 import Transcribe from './pages/Transcribe';
 import AudioLab from './pages/AudioLab';
+import Share from './pages/Share';
 import { ViewMode } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProjectProvider } from './contexts/ProjectContext';
+import { ToastProvider } from './components/Toast';
+
+// Simple path-based routing for share pages
+const getShareIdFromPath = (): string | null => {
+  const path = window.location.pathname;
+  const match = path.match(/^\/share\/([a-zA-Z0-9-]+)$/);
+  return match ? match[1] : null;
+};
 
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>(ViewMode.LIBRARY);
+  const [shareId, setShareId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = getShareIdFromPath();
+    setShareId(id);
+  }, []);
+
+  // If on a share page, render Share component
+  if (shareId) {
+    return <Share shareId={shareId} />;
+  }
 
   const renderContent = () => {
     switch (currentView) {
@@ -52,7 +72,9 @@ const App: React.FC = () => {
   return (
     <LanguageProvider>
       <ProjectProvider>
-        <AppContent />
+        <ToastProvider>
+          <AppContent />
+        </ToastProvider>
       </ProjectProvider>
     </LanguageProvider>
   );

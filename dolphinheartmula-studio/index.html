@@ -28,15 +28,43 @@
                 light: '#ffffff',
               },
               primary: {
-                DEFAULT: '#a855f7', // Purple-500
-                hover: '#9333ea', // Purple-600
+                DEFAULT: '#a855f7',
+                hover: '#9333ea',
+                light: '#c084fc',
                 glow: 'rgba(168, 85, 247, 0.5)'
               },
               accent: {
                 cyan: '#06b6d4',
                 pink: '#ec4899',
-              }
-            }
+                green: '#22c55e',
+                amber: '#f59e0b',
+              },
+              success: '#22c55e',
+              warning: '#f59e0b',
+              error: '#ef4444',
+            },
+            animation: {
+              'fade-in': 'fadeIn 0.2s ease-out',
+              'slide-in': 'slideIn 0.3s ease-out',
+              'pulse-glow': 'pulseGlow 2s ease-in-out infinite',
+            },
+            keyframes: {
+              fadeIn: {
+                '0%': { opacity: '0' },
+                '100%': { opacity: '1' },
+              },
+              slideIn: {
+                '0%': { opacity: '0', transform: 'translateX(10px)' },
+                '100%': { opacity: '1', transform: 'translateX(0)' },
+              },
+              pulseGlow: {
+                '0%, 100%': { boxShadow: '0 0 5px rgba(168, 85, 247, 0.3)' },
+                '50%': { boxShadow: '0 0 20px rgba(168, 85, 247, 0.6)' },
+              },
+            },
+            screens: {
+              'xs': '480px',
+            },
           }
         }
       }

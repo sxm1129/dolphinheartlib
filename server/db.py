@@ -75,6 +75,32 @@ CREATE TABLE IF NOT EXISTS projects (
 )
 """
 
+# Shares table for public sharing links
+CREATE_SHARES_TABLE_MYSQL = """
+CREATE TABLE IF NOT EXISTS shares (
+    id VARCHAR(36) PRIMARY KEY,
+    task_id VARCHAR(36) NOT NULL,
+    title VARCHAR(200),
+    created_at VARCHAR(50) NOT NULL,
+    expires_at VARCHAR(50),
+    view_count INT DEFAULT 0,
+    INDEX idx_task_id (task_id),
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
+CREATE_SHARES_TABLE_SQLITE = """
+CREATE TABLE IF NOT EXISTS shares (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    title TEXT,
+    created_at TEXT NOT NULL,
+    expires_at TEXT,
+    view_count INTEGER DEFAULT 0,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+)
+"""
+
 
 class MySQLConnection:
     """MySQL connection wrapper that mimics sqlite3.Connection interface."""
@@ -208,12 +234,13 @@ def _add_project_id_to_tasks() -> None:
 
 
 def init_db() -> None:
-    """Create tasks and projects tables if they do not exist."""
+    """Create tasks, projects, and shares tables if they do not exist."""
     if USE_MYSQL:
         _create_database_if_not_exists()
         with get_connection() as conn:
             conn.execute(CREATE_TASKS_TABLE_MYSQL)
             conn.execute(CREATE_PROJECTS_TABLE_MYSQL)
+            conn.execute(CREATE_SHARES_TABLE_MYSQL)
             conn.commit()
         _add_project_id_to_tasks()
         print("MySQL tables initialized.")
@@ -222,6 +249,7 @@ def init_db() -> None:
         with get_connection() as conn:
             conn.execute(CREATE_TASKS_TABLE_SQLITE)
             conn.execute(CREATE_PROJECTS_TABLE_SQLITE)
+            conn.execute(CREATE_SHARES_TABLE_SQLITE)
             conn.commit()
         _add_project_id_to_tasks()
         print("SQLite tables initialized.")

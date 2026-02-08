@@ -1,15 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Undo, Redo, Play, Pause, SkipBack, SkipForward, 
-  Mic, Volume2, Settings, Download, 
+  Mic, Volume2, Settings, Download, Upload, Clock, Menu,
   Wand2, Music, Layers, Edit3, Share2, Loader2, History,
-  Smile, Zap, Plus, X, RotateCcw
+  Smile, Zap, Plus, X, RotateCcw, ChevronRight, ChevronLeft
 } from 'lucide-react';
 import WaveformViz from '../components/WaveformViz';
-import { GoogleGenAI } from "@google/genai";
 import { useTranslation } from '../contexts/LanguageContext';
-import { generateAudio, getTask, getAudioUrl, pollTaskStatus, TaskResponse, updateProject, getModelList, getTasks, getProject } from '../services/api';
+import { generateAudio, getTask, getAudioUrl, pollTaskStatus, TaskResponse, updateProject, getModelList, getTasks, getProject, uploadReferenceAudio, deleteUploadedFile, UploadResponse, createShare, getGpuInfo, GpuInfo, generateLyrics } from '../services/api';
 import { useProject } from '../contexts/ProjectContext';
+import { LyricsLanguage, LYRICS_LANGUAGES, getLyricsLanguagePreference, setLyricsLanguagePreference } from '../utils/lyricsPrompt';
 
 const GENRES = ['Electronic', 'Pop', 'Rock', 'Hip Hop', 'R&B', 'Country', 'Jazz', 'Metal', 'Folk', 'Ambient'];
 const MOODS = ['Dark', 'Happy', 'Sad', 'Energetic', 'Chill', 'Romantic', 'Nostalgic', 'Angry', 'Dreamy'];
@@ -55,6 +55,7 @@ Burning with this digital desire...`);
   const [lyricsError, setLyricsError] = useState<string | null>(null);
   const [lyricsHistory, setLyricsHistory] = useState<Array<{text: string, timestamp: Date}>>([]);
   const [showHistory, setShowHistory] = useState(false);
+  const [lyricsLanguage, setLyricsLanguage] = useState<LyricsLanguage>(() => getLyricsLanguagePreference());
 
   // Audio Generation State
   const [isGeneratingAudio, setIsGeneratingAudio] = useState(false);
@@ -68,17 +69,46 @@ Burning with this digital desire...`);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(180); // 3:00 default duration
 
-  // Gen Config: model (checkpoint), temperature, topP, max_audio_length_ms, cfg_scale
+  // Gen Config: model (checkpoint), temperature, topk, max_audio_length_ms, cfg_scale
   const [checkpoint, setCheckpoint] = useState('HeartMula-Pro-4B (v2.1)');
   const [temperature, setTemperature] = useState(0.85);
-  const [topP, setTopP] = useState(0.9);
+  const [topk, setTopk] = useState(50);
   const [maxAudioLengthMs, setMaxAudioLengthMs] = useState(DEFAULT_MAX_AUDIO_LENGTH_MS);
   const [cfgScale, setCfgScale] = useState(DEFAULT_CFG_SCALE);
-
+  
   const [modelList, setModelList] = useState<string[]>([]);
+  const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
+
+  // Load models & GPU info on mount
+  useEffect(() => {
+    getModelList().then(setModelList);
+    
+    // Initial fetch
+    getGpuInfo().then(setGpuInfo);
+
+    // Poll GPU info every 10s
+    const timer = setInterval(() => {
+      getGpuInfo().then(setGpuInfo);
+    }, 10000);
+
+    return () => clearInterval(timer);
+  }, []);
+
   const [modelListLoading, setModelListLoading] = useState(false);
   const [taskLoading, setTaskLoading] = useState(false);
   const [updateProjectError, setUpdateProjectError] = useState<string | null>(null);
+
+  // Reference Audio Upload State
+  const [refAudioFile, setRefAudioFile] = useState<UploadResponse | null>(null);
+  const [isUploadingRef, setIsUploadingRef] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const refInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Task History Panel State
+  const [taskHistory, setTaskHistory] = useState<TaskResponse[]>([]);
+  const [showTaskHistory, setShowTaskHistory] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [showLeftPanel, setShowLeftPanel] = useState(true);
   const [projectNotFound, setProjectNotFound] = useState(false);
 
   // Keep ref in sync for race-condition checks
@@ -87,6 +117,42 @@ Burning with this digital desire...`);
     isMountedRef.current = true;
     return () => { isMountedRef.current = false; };
   }, []);
+
+  // Keyboard shortcuts: Space = play/pause, Cmd+Enter = generate
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ignore if typing in input/textarea
+      const target = e.target as HTMLElement;
+      if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
+        // Allow Cmd+Enter even in textarea for generation
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+          e.preventDefault();
+          if (!isGeneratingAudio && lyrics.trim()) {
+            handleGenerateAudio();
+          }
+        }
+        return;
+      }
+      
+      // Space: toggle playback
+      if (e.key === ' ' && audioUrl) {
+        e.preventDefault();
+        togglePlayback();
+      }
+      // Cmd/Ctrl + Enter: generate audio
+      if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+        e.preventDefault();
+        if (!isGeneratingAudio && lyrics.trim()) {
+          handleGenerateAudio();
+        }
+      }
+    };
+    
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+    // Note: handleGenerateAudio and togglePlayback are stable functions from component scope
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audioUrl, isGeneratingAudio, lyrics]);
 
   useEffect(() => {
     let interval: ReturnType<typeof setInterval>;
@@ -116,19 +182,54 @@ Burning with this digital desire...`);
   }, []);
 
   useEffect(() => {
+    // Load task history for current project and restore latest task params
     const requestedId = currentProjectId;
-    setTaskLoading(true);
-    getTasks({
-      page: 1,
-      page_size: 1,
-      type: 'generate',
-      ...(currentProjectId ? { project_id: currentProjectId } : {}),
-    })
-      .then((res) => {
-        if (currentProjectIdRef.current !== requestedId) return;
-        const task = res.items?.[0];
-        if (requestedId) {
-          if (!task?.id) {
+    if (currentProjectId) {
+      setLoadingHistory(true);
+      setTaskLoading(true);
+      getTasks({ project_id: currentProjectId, type: 'generate', page_size: 20 })
+        .then((res) => {
+          if (!isMountedRef.current || currentProjectIdRef.current !== requestedId) return;
+          const items = res.items || [];
+          setTaskHistory(items);
+          
+          // Restore params from latest task
+          const task = items[0];
+          if (task?.id) {
+            const params = task.params as { lyrics?: string; tags?: string; max_audio_length_ms?: number; cfg_scale?: number } | undefined;
+            if (params?.lyrics && typeof params.lyrics === 'string') {
+              setLyrics(params.lyrics.trim());
+            } else {
+              setLyrics('');
+            }
+            if (params?.tags != null && typeof params.tags === 'string') {
+              setTags(params.tags.trim());
+            } else {
+              setTags('');
+            }
+            if (params?.max_audio_length_ms != null && Number.isFinite(params.max_audio_length_ms)) {
+              setMaxAudioLengthMs(Math.max(8000, Math.min(600000, params.max_audio_length_ms)));
+            } else {
+              setMaxAudioLengthMs(DEFAULT_MAX_AUDIO_LENGTH_MS);
+            }
+            if (params?.cfg_scale != null && Number.isFinite(params.cfg_scale)) {
+              setCfgScale(Math.max(1, Math.min(3, params.cfg_scale)));
+            } else {
+              setCfgScale(DEFAULT_CFG_SCALE);
+            }
+            if (task.status === 'completed' && task.output_audio_path) {
+              setAudioTaskId(task.id);
+              setAudioUrl(getAudioUrl(task.id));
+              setAudioTaskStatus('completed');
+              const ms = params?.max_audio_length_ms || DEFAULT_MAX_AUDIO_LENGTH_MS;
+              setDuration(ms / 1000);
+            } else {
+              setAudioTaskId(null);
+              setAudioUrl(null);
+              setAudioTaskStatus('');
+            }
+          } else {
+            // No tasks, reset all
             setLyrics('');
             setTags('');
             setMaxAudioLengthMs(DEFAULT_MAX_AUDIO_LENGTH_MS);
@@ -136,46 +237,25 @@ Burning with this digital desire...`);
             setAudioTaskId(null);
             setAudioUrl(null);
             setAudioTaskStatus('');
-            return;
           }
-          const params = task.params as { lyrics?: string; tags?: string; max_audio_length_ms?: number; cfg_scale?: number } | undefined;
-          if (params?.lyrics && typeof params.lyrics === 'string' && params.lyrics.trim()) {
-            setLyrics(params.lyrics.trim());
-          } else {
-            setLyrics('');
+        })
+        .catch(console.error)
+        .finally(() => {
+          if (isMountedRef.current) {
+            setLoadingHistory(false);
+            setTaskLoading(false);
           }
-          if (params?.tags != null && typeof params.tags === 'string') {
-            setTags(params.tags.trim());
-          } else {
-            setTags('');
-          }
-          if (params?.max_audio_length_ms != null && Number.isFinite(params.max_audio_length_ms)) {
-            setMaxAudioLengthMs(Math.max(8000, Math.min(600000, params.max_audio_length_ms)));
-          } else {
-            setMaxAudioLengthMs(DEFAULT_MAX_AUDIO_LENGTH_MS);
-          }
-          if (params?.cfg_scale != null && Number.isFinite(params.cfg_scale)) {
-            setCfgScale(Math.max(1, Math.min(3, params.cfg_scale)));
-          } else {
-            setCfgScale(DEFAULT_CFG_SCALE);
-          }
-          if (task.status === 'completed' && task.output_audio_path) {
-            setAudioTaskId(task.id);
-            setAudioUrl(getAudioUrl(task.id));
-            setAudioTaskStatus('completed');
-            const ms = params?.max_audio_length_ms;
-            if (ms) setDuration(ms / 1000);
-          } else {
-            setAudioTaskId(null);
-            setAudioUrl(null);
-            setAudioTaskStatus('');
-          }
-        }
-      })
-      .catch(() => {})
-      .finally(() => {
-        if (currentProjectIdRef.current === requestedId) setTaskLoading(false);
-      });
+        });
+    } else {
+      setTaskHistory([]);
+      setLyrics('');
+      setTags('');
+      setMaxAudioLengthMs(DEFAULT_MAX_AUDIO_LENGTH_MS);
+      setCfgScale(DEFAULT_CFG_SCALE);
+      setAudioTaskId(null);
+      setAudioUrl(null);
+      setAudioTaskStatus('');
+    }
   }, [currentProjectId]);
 
   useEffect(() => {
@@ -212,65 +292,36 @@ Burning with this digital desire...`);
     if (isGeneratingLyrics) return;
     setLyricsError(null);
     setIsGeneratingLyrics(true);
-    const openRouterKey = ((process.env as { OPENROUTER_API_KEY?: string }).OPENROUTER_API_KEY || '').trim();
-    const geminiKey = (process.env.API_KEY || '').trim();
-    const geminiValid = geminiKey && geminiKey !== 'PLACEHOLDER_API_KEY';
-    if (!openRouterKey && !geminiValid) {
-      setLyricsError(t('studio.lyricsErrorNoKey') || '未配置 API Key。请在项目根目录 .env 中设置 OPENROUTER_API_KEY 或 GEMINI_API_KEY，修改后需重启前端 (npm run dev 或 server.sh restart studio)。');
-      setIsGeneratingLyrics(false);
-      return;
-    }
-    try {
-      let promptContent = `Write creative song lyrics based on the following parameters:
-      Genre: ${genre}
-      Mood: ${mood}`;
-      if (lyricPrompt.trim()) promptContent += `\nTopic/Keywords: ${lyricPrompt}`;
-      promptContent += `\n\nFormat nicely with [Verse], [Chorus], etc. headers. Return only the lyrics.`;
 
-      let text = '';
-      if (openRouterKey) {
-        const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${openRouterKey}`,
-            'HTTP-Referer': window.location.origin || '',
-          },
-          body: JSON.stringify({
-            model: ((process.env as { OPENROUTER_MODEL_NAME?: string }).OPENROUTER_MODEL_NAME || '').trim() || 'google/gemini-2.0-flash-exp',
-            messages: [{ role: 'user', content: promptContent }],
-            max_tokens: 2048,
-          }),
-        });
-        if (!res.ok) {
-          const errBody = await res.text();
-          throw new Error(res.status === 401 ? 'OpenRouter API Key 无效或未设置' : `OpenRouter ${res.status}: ${errBody.slice(0, 200)}`);
-        }
-        const data = await res.json();
-        text = data?.choices?.[0]?.message?.content?.trim() ?? '';
-      } else if (geminiValid) {
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: promptContent,
-        });
-        text = (response as { text?: string }).text ?? response.candidates?.[0]?.content?.parts?.[0]?.text ?? '';
+    try {
+      // Use backend API to generate lyrics
+      // The backend handles prompt construction and LLM calls (OpenRouter/Gemini)
+      const data = await generateLyrics({
+        language: lyricsLanguage,
+        genre,
+        mood,
+        topic: lyricPrompt.trim() || undefined,
+      });
+
+      if (!data.lyrics) {
+        throw new Error(t('studio.lyricsErrorEmpty') || 'No lyrics generated');
       }
-      if (text) {
-        setLyricsHistory(prev => [{ text, timestamp: new Date() }, ...prev]);
-        setLyrics(text);
-      } else {
-        setLyricsError(t('studio.lyricsErrorEmpty') || '未返回歌词内容');
-      }
-    } catch (e) {
-      console.error('Failed to generate lyrics', e);
-      setLyricsError(e instanceof Error ? e.message : (t('studio.lyricsError') || '歌词生成失败，请检查 API Key 或网络'));
+
+      setLyrics(data.lyrics);
+      
+      // Update history
+      const newEntry = { text: data.lyrics, timestamp: new Date() };
+      setLyricsHistory(prev => [newEntry, ...prev]);
+
+    } catch (err: any) {
+      console.error('Lyrics generation error:', err);
+      setLyricsError(err.message || t('studio.lyricsError') || 'Lyrics generation failed');
     } finally {
       setIsGeneratingLyrics(false);
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
+  const handleLyricInputKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         handleGenerateLyrics();
@@ -287,19 +338,20 @@ Burning with this digital desire...`);
     setAudioTaskStatus('pending');
     
     try {
-      // topk: heartlib expects integer; UI topP 0–1 mapped to 1–100, clamped to avoid invalid values
-      const topk = Math.min(100, Math.max(1, Math.round(topP * 100)));
+      // topk: heartlib expects integer 1-200
+      const topkVal = Math.min(200, Math.max(1, topk));
       const ms = Math.max(8000, Math.min(600000, maxAudioLengthMs));
       const cfg = Math.max(1, Math.min(3, cfgScale));
       const { task_id } = await generateAudio({
         lyrics: lyrics,
         tags: tags.trim() || `${genre}, ${mood}`,
         temperature: temperature,
-        topk,
+        topk: topkVal,
         cfg_scale: cfg,
         max_audio_length_ms: ms,
         version: checkpoint,
         project_id: currentProjectId || undefined,
+        ref_file_id: refAudioFile?.file_id || undefined,
       });
       
       if (!isMountedRef.current) return;
@@ -342,6 +394,21 @@ Burning with this digital desire...`);
     }
   };
 
+  // Select a task from history to play
+  const handleSelectHistoryTask = (task: TaskResponse) => {
+    if (task.status !== 'completed' || !task.output_audio_path) return;
+    setAudioTaskId(task.id);
+    setAudioUrl(getAudioUrl(task.id));
+    setAudioTaskStatus('completed');
+    const params = task.params as { lyrics?: string; tags?: string; max_audio_length_ms?: number; cfg_scale?: number } | undefined;
+    if (params?.lyrics) setLyrics(params.lyrics);
+    if (params?.tags) setTags(params.tags);
+    const ms = params?.max_audio_length_ms || DEFAULT_MAX_AUDIO_LENGTH_MS;
+    setDuration(ms / 1000);
+    setCurrentTime(0);
+    setIsPlaying(false);
+  };
+
   // Handle audio playback with actual audio element
   const togglePlayback = () => {
     if (audioRef.current && audioUrl) {
@@ -374,6 +441,13 @@ Burning with this digital desire...`);
       {/* Top Bar */}
       <div className="h-14 border-b border-slate-800 bg-surface-dark flex items-center px-4 justify-between shrink-0 z-30">
         <div className="flex items-center gap-4">
+          {/* Mobile menu toggle */}
+          <button
+            onClick={() => setShowLeftPanel(!showLeftPanel)}
+            className="lg:hidden p-1.5 rounded hover:bg-slate-700 text-slate-400 hover:text-white transition-colors"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
           <div className="flex items-center gap-2">
             <span className="bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent font-bold text-lg font-display">
                 Pro Studio
@@ -397,17 +471,20 @@ Burning with this digital desire...`);
                 <button className="px-3 py-1 rounded bg-slate-700 shadow text-xs font-medium text-white">{t('studio.compose')}</button>
                 <button className="px-3 py-1 rounded hover:bg-slate-700/50 text-xs font-medium text-slate-500 transition-colors">{t('studio.mastering')}</button>
              </div>
-             
-             <button
+                          <button
+                disabled={!audioTaskId || audioTaskStatus !== 'completed'}
                 onClick={async () => {
+                  if (!audioTaskId) return;
                   try {
-                    await navigator.clipboard.writeText(window.location.href);
-                    alert(t('studio.shareCopied') || '链接已复制到剪贴板');
-                  } catch {
-                    alert('复制失败');
+                    const share = await createShare(audioTaskId, currentProject?.title);
+                    const shareUrl = `${window.location.origin}/share/${share.id}`;
+                    await navigator.clipboard.writeText(shareUrl);
+                    alert(t('studio.shareCopied') || `分享链接已复制: ${shareUrl}`);
+                  } catch (err) {
+                    alert(`分享失败: ${err instanceof Error ? err.message : '未知错误'}`);
                   }
                 }}
-                className="flex items-center gap-1.5 bg-primary hover:bg-primary-hover text-white px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg shadow-purple-900/30"
+                className={`flex items-center gap-1.5 ${audioTaskId && audioTaskStatus === 'completed' ? 'bg-primary hover:bg-primary-hover' : 'bg-slate-700 cursor-not-allowed'} text-white px-3 py-1.5 rounded-full text-xs font-bold transition-all shadow-lg shadow-purple-900/30`}
               >
                 <Share2 className="w-3 h-3" />
                 {t('studio.share')}
@@ -445,8 +522,8 @@ Burning with this digital desire...`);
       )}
 
       <div className="flex flex-1 overflow-hidden">
-        {/* Left Config Panel */}
-        <aside className="w-72 bg-[#161b28] border-r border-slate-800 flex flex-col overflow-y-auto shrink-0 z-20 custom-scrollbar">
+        {/* Left Config Panel - hidden on mobile when collapsed */}
+        <aside className={`${showLeftPanel ? 'w-72' : 'w-0 hidden'} lg:w-72 lg:block bg-[#161b28] border-r border-slate-800 flex flex-col overflow-y-auto shrink-0 z-20 custom-scrollbar transition-all duration-200`}>
             <div className="p-4 space-y-6">
                 
                 {/* Model Config Group */}
@@ -548,16 +625,17 @@ Burning with this digital desire...`);
 
                         <div>
                             <div className="flex justify-between mb-1">
-                                <label className="text-[10px] uppercase text-slate-400">{t('studio.topP')}</label>
-                                <span className="text-[10px] font-mono text-primary">{topP.toFixed(2)}</span>
+                                <label className="text-[10px] uppercase text-slate-400">{t('studio.topk')}</label>
+                                <span className="text-[10px] font-mono text-primary">{topk}</span>
                             </div>
                             <input 
-                                type="range" 
-                                min="0.1" max="1.0" step="0.05"
-                                value={topP}
-                                onChange={(e) => setTopP(parseFloat(e.target.value))}
-                                className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-primary" 
+                                type="number" 
+                                min={1} max={200} step={1}
+                                value={topk}
+                                onChange={(e) => setTopk(Math.max(1, Math.min(200, Number(e.target.value) || 50)))}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                             />
+                            <p className="text-[10px] text-slate-500 mt-0.5">{t('studio.topkHint')}</p>
                         </div>
 
                         <div>
@@ -589,6 +667,74 @@ Burning with this digital desire...`);
                         </div>
                     </div>
                 </div>
+
+                {/* Reference Audio Upload */}
+                <div className="border border-slate-800 rounded-lg overflow-hidden bg-surface-dark">
+                    <div className="w-full flex items-center justify-between p-3 bg-slate-800/50">
+                        <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                            <Upload className="w-3 h-3 text-primary" /> {t('studio.refAudio')}
+                        </span>
+                    </div>
+                    <div className="p-3 border-t border-slate-800">
+                        <input
+                            ref={refInputRef}
+                            type="file"
+                            accept=".mp3,.wav,.flac,.ogg,.m4a,.aac"
+                            className="hidden"
+                            onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                setIsUploadingRef(true);
+                                setUploadError(null);
+                                try {
+                                    const res = await uploadReferenceAudio(file);
+                                    setRefAudioFile(res);
+                                } catch (err) {
+                                    setUploadError(err instanceof Error ? err.message : 'Upload failed');
+                                } finally {
+                                    setIsUploadingRef(false);
+                                    if (refInputRef.current) refInputRef.current.value = '';
+                                }
+                            }}
+                        />
+                        {refAudioFile ? (
+                            <div className="flex items-center justify-between bg-slate-900 rounded px-3 py-2">
+                                <div className="flex items-center gap-2 text-xs text-slate-300 truncate">
+                                    <Music className="w-4 h-4 text-primary" />
+                                    <span className="truncate max-w-[160px]">{refAudioFile.filename}</span>
+                                    <span className="text-slate-500">({(refAudioFile.size / 1024).toFixed(1)} KB)</span>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={async () => {
+                                        try {
+                                            await deleteUploadedFile(refAudioFile.file_id);
+                                        } catch { /* ignore */ }
+                                        setRefAudioFile(null);
+                                    }}
+                                    className="text-slate-400 hover:text-red-400 transition-colors"
+                                >
+                                    <X className="w-4 h-4" />
+                                </button>
+                            </div>
+                        ) : (
+                            <button
+                                type="button"
+                                onClick={() => refInputRef.current?.click()}
+                                disabled={isUploadingRef}
+                                className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-600 rounded-lg text-xs text-slate-400 hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
+                            >
+                                {isUploadingRef ? (
+                                    <><Loader2 className="w-4 h-4 animate-spin" /> {t('studio.uploading')}</>
+                                ) : (
+                                    <><Upload className="w-4 h-4" /> {t('studio.uploadRefAudio')}</>
+                                )}
+                            </button>
+                        )}
+                        {uploadError && <p className="text-[10px] text-red-400 mt-1">{uploadError}</p>}
+                        <p className="text-[10px] text-slate-500 mt-1.5">{t('studio.refAudioHint')}</p>
+                    </div>
+                </div>
             </div>
 
             {/* Generate Audio: main entry to trigger music generation */}
@@ -618,11 +764,27 @@ Burning with this digital desire...`);
 
             <div className="mt-auto p-4 border-t border-slate-800 bg-surface-dark">
                 <div className="flex items-center justify-between text-[10px] text-slate-500 mb-2">
-                    <span>{t('studio.vram')}</span>
-                    <span className="text-slate-300">14.2 / 24 GB</span>
+                    <span title={gpuInfo?.device_name || 'GPU'}>{t('studio.vram')}</span>
+                    <span className="text-slate-300">
+                        {gpuInfo?.available 
+                            ? `${gpuInfo.used_gb} / ${gpuInfo.total_gb} GB`
+                            : t('studio.cpuMode')}
+                    </span>
                 </div>
                 <div className="w-full bg-slate-800 rounded-full h-1.5 overflow-hidden">
-                    <div className="bg-gradient-to-r from-primary to-blue-500 h-1.5 rounded-full" style={{width: '60%'}}></div>
+                    <div 
+                        className={`h-1.5 rounded-full transition-all duration-500 ${
+                            !gpuInfo?.available ? 'bg-slate-600 w-full' :
+                            (gpuInfo.used_gb! / gpuInfo.total_gb! > 0.9) ? 'bg-red-500' :
+                            (gpuInfo.used_gb! / gpuInfo.total_gb! > 0.7) ? 'bg-yellow-500' :
+                            'bg-gradient-to-r from-primary to-blue-500'
+                        }`} 
+                        style={{
+                            width: gpuInfo?.available 
+                                ? `${Math.min((gpuInfo.used_gb! / gpuInfo.total_gb!) * 100, 100)}%` 
+                                : '100%'
+                        }}
+                    ></div>
                 </div>
             </div>
         </aside>
@@ -752,6 +914,25 @@ Burning with this digital desire...`);
                                 {MOODS.map(m => <option key={m} value={m}>{m}</option>)}
                             </select>
                         </div>
+                        {/* 歌词语言选择器 */}
+                        <div className="relative flex-1">
+                            <div className="absolute inset-y-0 left-0 pl-2 flex items-center pointer-events-none">
+                                <span className="text-xs">🌐</span>
+                            </div>
+                            <select 
+                                value={lyricsLanguage} 
+                                onChange={(e) => {
+                                    const lang = e.target.value as LyricsLanguage;
+                                    setLyricsLanguage(lang);
+                                    setLyricsLanguagePreference(lang);
+                                }}
+                                className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 pl-8 text-xs text-slate-300 focus:ring-1 focus:ring-primary focus:border-primary outline-none appearance-none cursor-pointer hover:border-slate-600 transition-colors"
+                            >
+                                {LYRICS_LANGUAGES.map(l => (
+                                    <option key={l.code} value={l.code}>{l.flag} {l.nativeName}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                     <div className="flex items-center gap-2">
                         <span className="material-symbols-rounded text-slate-400 text-base shrink-0">tag</span>
@@ -759,7 +940,7 @@ Burning with this digital desire...`);
                             type="text" 
                             value={lyricPrompt}
                             onChange={(e) => setLyricPrompt(e.target.value)}
-                            onKeyDown={handleKeyDown}
+                            onKeyDown={handleLyricInputKeyDown}
                             placeholder={t('studio.promptPlaceholder')}
                             className="flex-1 bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300 placeholder-slate-500 focus:ring-1 focus:ring-primary focus:border-primary outline-none"
                         />
@@ -871,6 +1052,69 @@ Burning with this digital desire...`);
             </div>
 
         </main>
+
+        {/* Task History Sidebar */}
+        <aside className={`${showTaskHistory ? 'w-72' : 'w-10'} shrink-0 bg-surface-dark border-l border-slate-800 flex flex-col transition-all duration-200`}>
+          <button
+            onClick={() => setShowTaskHistory(!showTaskHistory)}
+            className="h-10 flex items-center justify-center border-b border-slate-800 hover:bg-slate-800 transition-colors"
+          >
+            {showTaskHistory ? <ChevronRight className="w-4 h-4 text-slate-400" /> : <ChevronLeft className="w-4 h-4 text-slate-400" />}
+          </button>
+          {showTaskHistory && (
+            <>
+              <div className="p-3 border-b border-slate-800">
+                <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                  <Clock className="w-3 h-3 text-primary" /> {t('studio.taskHistory')}
+                </span>
+              </div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                {loadingHistory ? (
+                  <div className="p-4 flex items-center justify-center">
+                    <Loader2 className="w-5 h-5 animate-spin text-primary" />
+                  </div>
+                ) : taskHistory.length === 0 ? (
+                  <div className="p-4 text-center text-xs text-slate-500">{t('studio.noTasks')}</div>
+                ) : (
+                  <div className="p-2 space-y-1">
+                    {taskHistory.map((task) => {
+                      const params = task.params as { tags?: string } | undefined;
+                      const isActive = audioTaskId === task.id;
+                      return (
+                        <button
+                          key={task.id}
+                          onClick={() => handleSelectHistoryTask(task)}
+                          disabled={task.status !== 'completed'}
+                          className={`w-full text-left p-2 rounded transition-colors ${isActive ? 'bg-primary/20 border border-primary/30' : 'hover:bg-slate-800 border border-transparent'} ${task.status !== 'completed' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            {task.status === 'completed' ? (
+                              <Play className="w-3 h-3 text-primary shrink-0" />
+                            ) : task.status === 'running' ? (
+                              <Loader2 className="w-3 h-3 animate-spin text-yellow-400 shrink-0" />
+                            ) : task.status === 'failed' ? (
+                              <X className="w-3 h-3 text-red-400 shrink-0" />
+                            ) : (
+                              <Clock className="w-3 h-3 text-slate-500 shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-[10px] text-slate-300 truncate">
+                                {params?.tags || t('studio.untitledTask')}
+                              </p>
+                              <p className="text-[9px] text-slate-500">
+                                {new Date(task.created_at).toLocaleString()}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </aside>
       </div>
     </div>
   );
