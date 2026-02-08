@@ -5,7 +5,6 @@ import {
   Music, 
   Library, 
   Heart, 
-  Settings, 
   Disc3,
   Mic,
   LogOut,
@@ -69,14 +68,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
             <span className="text-sm font-medium">{t('nav.transcribe')}</span>
           </div>
 
-          <div 
-            className={navItemClass(currentView === ViewMode.AUDIO_LAB)}
-            onClick={() => onChangeView(ViewMode.AUDIO_LAB)}
-          >
-            <Library className={`w-5 h-5 ${currentView === ViewMode.AUDIO_LAB ? 'text-primary' : 'group-hover:text-primary'}`} />
-            <span className="text-sm font-medium">{t('nav.audioLab')}</span>
-          </div>
-
           <div
             className={`${navItemClass(false)} opacity-60 cursor-not-allowed`}
             title={t('lib.comingSoon')}
@@ -101,11 +92,6 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView }) => {
           <span className="text-xs font-bold px-1.5 py-0.5 bg-slate-800 rounded border border-slate-700">
              {language === 'en' ? 'EN' : '中'}
           </span>
-        </div>
-
-        <div className="flex items-center gap-3 px-3 py-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors cursor-pointer">
-          <Settings className="w-5 h-5" />
-          <span className="text-sm font-medium">{t('nav.settings')}</span>
         </div>
 
         <div className="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-white/5 cursor-pointer bg-slate-900/50 border border-slate-800">

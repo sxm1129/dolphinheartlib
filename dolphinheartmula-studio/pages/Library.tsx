@@ -93,8 +93,8 @@ const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
 
   const handleDeleteProject = async (id: string) => {
     setOpenMenuId(null);
-    if (!confirm('确定要删除这个项目吗？')) return;
-    
+    if (!confirm(t('lib.deleteConfirm'))) return;
+
     setErrorMessage(null);
     try {
       await deleteProject(id);
@@ -102,7 +102,7 @@ const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
       loadProjects();
     } catch (error) {
       console.error('Failed to delete project:', error);
-      setErrorMessage(error instanceof Error ? error.message : '删除项目失败');
+      setErrorMessage(error instanceof Error ? error.message : t('lib.deleteFailed'));
     }
   };
 
@@ -245,7 +245,7 @@ const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 pb-20">
             {projects.map((project) => (
-              <div key={project.id} className="bg-[#1c1a2e]/70 backdrop-blur-md border border-slate-700/50 rounded-xl overflow-hidden group hover:border-primary/50 hover:shadow-[0_0_20px_rgba(168,85,247,0.15)] transition-all duration-300 relative flex flex-col">
+              <div key={project.id} className="bg-[#1c1a2e]/70 backdrop-blur-md border border-slate-700/50 rounded-xl overflow-visible group hover:border-primary/50 hover:shadow-[0_0_20px_rgba(168,85,247,0.15)] transition-all duration-300 relative flex flex-col">
                 {/* Visual Header - click to open in Studio */}
                 <div
                   className={`h-40 relative p-4 flex items-center justify-center overflow-hidden bg-gradient-to-br from-slate-900 to-slate-800 cursor-pointer`}

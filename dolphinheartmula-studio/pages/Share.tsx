@@ -87,7 +87,7 @@ const Share: React.FC<ShareProps> = ({ shareId }) => {
   const tags = task?.params?.tags || '';
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-background-dark via-[#1a1f2e] to-[#0d1117] text-slate-200">
+    <div className="min-h-screen h-screen overflow-y-auto bg-gradient-to-br from-background-dark via-[#1a1f2e] to-[#0d1117] text-slate-200">
       {/* Header */}
       <header className="border-b border-slate-800 bg-surface-dark/50 backdrop-blur-md">
         <div className="max-w-4xl mx-auto px-4 py-4 flex items-center justify-between">
@@ -149,9 +149,9 @@ const Share: React.FC<ShareProps> = ({ shareId }) => {
         <div className="grid md:grid-cols-2 gap-6">
           {/* Lyrics */}
           {lyrics && (
-            <div className="bg-surface-dark rounded-xl border border-slate-800 p-6">
-              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4">歌词</h2>
-              <pre className="text-slate-300 whitespace-pre-wrap text-sm leading-relaxed font-mono">
+            <div className="bg-surface-dark rounded-xl border border-slate-800 p-6 flex flex-col min-h-0">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-4 shrink-0">歌词</h2>
+              <pre className="text-slate-300 whitespace-pre-wrap text-sm leading-relaxed font-mono overflow-y-auto max-h-64 pr-2">
                 {lyrics}
               </pre>
             </div>

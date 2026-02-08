@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Undo, Redo, Play, Pause, SkipBack, SkipForward, 
-  Mic, Volume2, Settings, Download, Upload, Clock, Menu,
+  Mic, Volume2, Settings, Download, Clock, Menu,
   Wand2, Music, Layers, Edit3, Share2, Loader2, History,
   Smile, Zap, Plus, X, RotateCcw, ChevronRight, ChevronLeft
 } from 'lucide-react';
 import WaveformViz from '../components/WaveformViz';
 import { useTranslation } from '../contexts/LanguageContext';
-import { generateAudio, getTask, getAudioUrl, pollTaskStatus, TaskResponse, updateProject, getModelList, getTasks, getProject, uploadReferenceAudio, deleteUploadedFile, UploadResponse, createShare, getGpuInfo, GpuInfo, generateLyrics } from '../services/api';
+import { generateAudio, getTask, getAudioUrl, pollTaskStatus, TaskResponse, updateProject, getModelList, getTasks, getProject, createShare, getGpuInfo, GpuInfo, generateLyrics } from '../services/api';
 import { useProject } from '../contexts/ProjectContext';
 import { usePageStateSlice } from '../contexts/PageStateContext';
 import { ViewMode } from '../types';
@@ -83,11 +83,8 @@ const Studio: React.FC = () => {
   const [modelList, setModelList] = useState<string[]>([]);
   const [gpuInfo, setGpuInfo] = useState<GpuInfo | null>(null);
 
-  // Load models & GPU info on mount
+  // Load GPU info on mount (model list loaded in separate effect with checkpoint filter)
   useEffect(() => {
-    getModelList().then(setModelList);
-    
-    // Initial fetch
     getGpuInfo().then(setGpuInfo);
 
     // Poll GPU info every 10s
@@ -101,12 +98,6 @@ const Studio: React.FC = () => {
   const [modelListLoading, setModelListLoading] = useState(false);
   const [taskLoading, setTaskLoading] = useState(false);
   const [updateProjectError, setUpdateProjectError] = useState<string | null>(null);
-
-  // Reference Audio Upload State
-  const [refAudioFile, setRefAudioFile] = useState<UploadResponse | null>(null);
-  const [isUploadingRef, setIsUploadingRef] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-  const refInputRef = useRef<HTMLInputElement | null>(null);
 
   // Task History Panel State
   const [taskHistory, setTaskHistory] = useState<TaskResponse[]>([]);
@@ -174,12 +165,17 @@ const Studio: React.FC = () => {
     return () => clearInterval(interval);
   }, [isPlaying, duration]);
 
+  // Only show HeartMuLa checkpoints (hide HeartCodec and other non-generation models)
+  const filterCheckpointModels = (names: string[]) =>
+    names.filter((name) => /heartmula/i.test(name));
+
   useEffect(() => {
     setModelListLoading(true);
     getModelList()
       .then((list) => {
-        setModelList(list);
-        if (list.length === 1) setCheckpoint(list[0]);
+        const options = filterCheckpointModels(list);
+        setModelList(options.length > 0 ? options : list);
+        if (options.length === 1) setCheckpoint(options[0]);
       })
       .catch(() => setModelList([]))
       .finally(() => setModelListLoading(false));
@@ -355,7 +351,6 @@ const Studio: React.FC = () => {
         max_audio_length_ms: ms,
         version: checkpoint,
         project_id: currentProjectId || undefined,
-        ref_file_id: refAudioFile?.file_id || undefined,
       });
       
       if (!isMountedRef.current) return;
@@ -471,10 +466,6 @@ const Studio: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-3">
-             <div className="flex items-center bg-slate-800 rounded-md p-0.5 border border-slate-700 hidden md:flex">
-                <button className="px-3 py-1 rounded bg-slate-700 shadow text-xs font-medium text-white">{t('studio.compose')}</button>
-                <button className="px-3 py-1 rounded hover:bg-slate-700/50 text-xs font-medium text-slate-500 transition-colors">{t('studio.mastering')}</button>
-             </div>
                           <button
                 disabled={!audioTaskId || audioTaskStatus !== 'completed'}
                 onClick={async () => {
@@ -482,7 +473,18 @@ const Studio: React.FC = () => {
                   try {
                     const share = await createShare(audioTaskId, currentProject?.title);
                     const shareUrl = `${window.location.origin}/share/${share.id}`;
-                    await navigator.clipboard.writeText(shareUrl);
+                    if (typeof navigator.clipboard?.writeText === 'function') {
+                      await navigator.clipboard.writeText(shareUrl);
+                    } else {
+                      const ta = document.createElement('textarea');
+                      ta.value = shareUrl;
+                      ta.style.position = 'fixed';
+                      ta.style.left = '-9999px';
+                      document.body.appendChild(ta);
+                      ta.select();
+                      document.execCommand('copy');
+                      document.body.removeChild(ta);
+                    }
                     alert(t('studio.shareCopied') || `分享链接已复制: ${shareUrl}`);
                   } catch (err) {
                     alert(`分享失败: ${err instanceof Error ? err.message : '未知错误'}`);
@@ -543,7 +545,7 @@ const Studio: React.FC = () => {
                             {modelListLoading ? (
                               <div className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-500">{t('studio.loading') || '加载中…'}</div>
                             ) : (() => {
-                                const options = modelList.length > 0 ? modelList : ['HeartMula-Pro-4B (v2.1)', 'HeartMula-Fast-2B', 'HeartCodec-Studio-HQ', 'HeartMula-3B (Standard)'];
+                                const options = modelList.length > 0 ? modelList : ['HeartMuLa-oss-3B'];
                                 if (options.length === 1) {
                                   return (
                                     <div className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-300" title={t('studio.singleModel') || '当前后端仅有一个模型'}>{options[0]}</div>
@@ -669,74 +671,6 @@ const Studio: React.FC = () => {
                             />
                             <p className="text-[10px] text-slate-500 mt-0.5">{t('studio.cfgScaleHint')}</p>
                         </div>
-                    </div>
-                </div>
-
-                {/* Reference Audio Upload */}
-                <div className="border border-slate-800 rounded-lg overflow-hidden bg-surface-dark">
-                    <div className="w-full flex items-center justify-between p-3 bg-slate-800/50">
-                        <span className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
-                            <Upload className="w-3 h-3 text-primary" /> {t('studio.refAudio')}
-                        </span>
-                    </div>
-                    <div className="p-3 border-t border-slate-800">
-                        <input
-                            ref={refInputRef}
-                            type="file"
-                            accept=".mp3,.wav,.flac,.ogg,.m4a,.aac"
-                            className="hidden"
-                            onChange={async (e) => {
-                                const file = e.target.files?.[0];
-                                if (!file) return;
-                                setIsUploadingRef(true);
-                                setUploadError(null);
-                                try {
-                                    const res = await uploadReferenceAudio(file);
-                                    setRefAudioFile(res);
-                                } catch (err) {
-                                    setUploadError(err instanceof Error ? err.message : 'Upload failed');
-                                } finally {
-                                    setIsUploadingRef(false);
-                                    if (refInputRef.current) refInputRef.current.value = '';
-                                }
-                            }}
-                        />
-                        {refAudioFile ? (
-                            <div className="flex items-center justify-between bg-slate-900 rounded px-3 py-2">
-                                <div className="flex items-center gap-2 text-xs text-slate-300 truncate">
-                                    <Music className="w-4 h-4 text-primary" />
-                                    <span className="truncate max-w-[160px]">{refAudioFile.filename}</span>
-                                    <span className="text-slate-500">({(refAudioFile.size / 1024).toFixed(1)} KB)</span>
-                                </div>
-                                <button
-                                    type="button"
-                                    onClick={async () => {
-                                        try {
-                                            await deleteUploadedFile(refAudioFile.file_id);
-                                        } catch { /* ignore */ }
-                                        setRefAudioFile(null);
-                                    }}
-                                    className="text-slate-400 hover:text-red-400 transition-colors"
-                                >
-                                    <X className="w-4 h-4" />
-                                </button>
-                            </div>
-                        ) : (
-                            <button
-                                type="button"
-                                onClick={() => refInputRef.current?.click()}
-                                disabled={isUploadingRef}
-                                className="w-full flex items-center justify-center gap-2 py-3 border-2 border-dashed border-slate-600 rounded-lg text-xs text-slate-400 hover:border-primary hover:text-primary transition-colors disabled:opacity-50"
-                            >
-                                {isUploadingRef ? (
-                                    <><Loader2 className="w-4 h-4 animate-spin" /> {t('studio.uploading')}</>
-                                ) : (
-                                    <><Upload className="w-4 h-4" /> {t('studio.uploadRefAudio')}</>
-                                )}
-                            </button>
-                        )}
-                        {uploadError && <p className="text-[10px] text-red-400 mt-1">{uploadError}</p>}
-                        <p className="text-[10px] text-slate-500 mt-1.5">{t('studio.refAudioHint')}</p>
                     </div>
                 </div>
             </div>
@@ -875,10 +809,6 @@ const Studio: React.FC = () => {
                                     )}
                                 </div>
 
-                                <button className="text-[10px] flex items-center gap-1 text-primary bg-primary/10 px-2 py-1 rounded hover:bg-primary/20 transition-colors border border-primary/20">
-                                    <Wand2 className="w-3 h-3" /> {t('studio.aiSuggest')}
-                                </button>
-                                <span className="text-[10px] font-mono text-slate-500">{t('studio.tokens')}: <span className="text-green-400">124</span>/512</span>
                             </div>
                         </div>
                         <div className="flex-1 min-h-0">
