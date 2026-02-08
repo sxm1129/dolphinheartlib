@@ -13,6 +13,7 @@ from server.store import (
     get_task,
     update_task,
 )
+from server.project_store import update_project
 
 
 def _task_dir(task_id: str) -> Path:
@@ -93,6 +94,8 @@ def run_generate_task(task_id: str) -> None:
                 )
         rel_path = f"{task_id}/audio.mp3"
         update_task(task_id, status=STATUS_COMPLETED, output_audio_path=rel_path)
+        if getattr(task, "project_id", None):
+            update_project(task.project_id, status="Generated")
     except Exception as e:
         update_task(
             task_id,

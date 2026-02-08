@@ -123,3 +123,11 @@ def update_task(task_id: str, **fields: Any) -> bool:
         )
         conn.commit()
     return cur.rowcount > 0
+
+
+def has_completed_generate_task(project_id: str) -> bool:
+    """Return True if the project has at least one completed generate task."""
+    if not project_id:
+        return False
+    tasks_list, _ = list_tasks(project_id=project_id, status=STATUS_COMPLETED, task_type="generate", page_size=1)
+    return len(tasks_list) > 0

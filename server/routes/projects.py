@@ -10,6 +10,7 @@ from server.project_store import (
     list_projects,
     update_project,
 )
+from server.store import has_completed_generate_task
 from server.schemas import (
     ProjectCreate,
     ProjectListResponse,
@@ -21,14 +22,17 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 
 def _project_to_response(project) -> ProjectResponse:
-    """Convert Project model to ProjectResponse."""
+    """Convert Project model to ProjectResponse. If status is Draft but project has a completed generate task, show Generated."""
+    status = project.status
+    if status == "Draft" and has_completed_generate_task(project.id):
+        status = "Generated"
     return ProjectResponse(
         id=project.id,
         title=project.title,
         genre=project.genre,
         tags=project.tags,
         duration=project.duration,
-        status=project.status,
+        status=status,
         color=project.color,
         created_at=project.created_at,
         updated_at=project.updated_at,
