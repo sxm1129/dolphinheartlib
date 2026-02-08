@@ -168,23 +168,23 @@ const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full overflow-hidden relative bg-background-dark">
+    <div className="flex-1 flex flex-col h-full min-h-0 overflow-hidden relative bg-background-dark">
       {/* Ambient Glows */}
       <div className="absolute top-0 left-0 w-full h-full pointer-events-none z-0">
         <div className="absolute top-[-20%] right-[-10%] w-[600px] h-[600px] bg-primary/5 rounded-full blur-[120px]"></div>
         <div className="absolute bottom-[-10%] left-[-10%] w-[500px] h-[500px] bg-purple-900/10 rounded-full blur-[100px]"></div>
       </div>
 
-      {/* Header */}
-      <header className="flex-shrink-0 px-8 py-6 z-10 border-b border-slate-800 bg-[#110f23]/80 backdrop-blur-md">
-        <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
-          <div>
-            <h2 className="text-3xl font-bold text-white mb-1 font-display">{t('lib.title')}</h2>
-            <p className="text-slate-400 text-sm">{t('lib.desc')}</p>
+      {/* Header - responsive padding and typography */}
+      <header className="flex-shrink-0 px-4 sm:px-6 md:px-8 py-4 sm:py-6 z-10 border-b border-slate-800 bg-[#110f23]/80 backdrop-blur-md">
+        <div className="flex flex-wrap items-end justify-between gap-4 mb-4 sm:mb-6">
+          <div className="min-w-0">
+            <h2 className="text-2xl sm:text-3xl font-bold text-white mb-1 font-display">{t('lib.title')}</h2>
+            <p className="text-slate-400 text-xs sm:text-sm truncate sm:whitespace-normal">{t('lib.desc')}</p>
           </div>
           <button 
             onClick={() => setShowNewModal(true)}
-            className="bg-primary hover:bg-primary-hover text-white px-5 py-2.5 rounded-lg text-sm font-bold shadow-lg shadow-purple-900/25 flex items-center gap-2 transition-all transform hover:scale-105"
+            className="bg-primary hover:bg-primary-hover text-white px-4 py-2 sm:px-5 sm:py-2.5 rounded-lg text-sm font-bold shadow-lg shadow-purple-900/25 flex items-center gap-2 transition-all transform hover:scale-105 shrink-0 touch-manipulation"
           >
             <Plus className="w-4 h-4" />
             {t('lib.new')}
@@ -198,9 +198,9 @@ const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
           </div>
         )}
 
-        {/* Filters */}
-        <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-          <div className="relative w-full md:w-96 group">
+        {/* Filters - full width on mobile, wrap */}
+        <div className="flex flex-col md:flex-row gap-3 sm:gap-4 items-stretch md:items-center justify-between">
+          <div className="relative w-full md:max-w-md group">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search className="w-4 h-4 text-slate-500 group-focus-within:text-primary transition-colors" />
             </div>
@@ -213,30 +213,30 @@ const Library: React.FC<LibraryProps> = ({ setCurrentView }) => {
             />
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
              <select 
                value={selectedGenre || ''}
                onChange={(e) => setSelectedGenre(e.target.value || null)}
-               className="flex items-center gap-2 px-3 py-2 bg-[#1c1a2e] border border-slate-700/50 rounded-lg text-sm text-slate-300 hover:bg-[#25223a] hover:text-white transition-colors"
+               className="flex items-center gap-2 px-3 py-2 bg-[#1c1a2e] border border-slate-700/50 rounded-lg text-sm text-slate-300 hover:bg-[#25223a] hover:text-white transition-colors min-h-[44px] touch-manipulation"
              >
                 <option value="">{t('lib.allStyles')}</option>
                 {GENRES.map(g => <option key={g} value={g}>{g}</option>)}
              </select>
-             <button className="flex items-center gap-2 px-3 py-2 bg-[#1c1a2e] border border-slate-700/50 rounded-lg text-sm text-slate-300 hover:bg-[#25223a] hover:text-white transition-colors">
+             <button className="flex items-center gap-2 px-3 py-2 bg-[#1c1a2e] border border-slate-700/50 rounded-lg text-sm text-slate-300 hover:bg-[#25223a] hover:text-white transition-colors min-h-[44px] touch-manipulation">
                 <Calendar className="w-4 h-4" />
-                <span>{t('lib.dateCreated')}</span>
+                <span className="whitespace-nowrap">{t('lib.dateCreated')}</span>
              </button>
-             <div className="h-6 w-[1px] bg-slate-700 mx-2"></div>
+             <div className="h-6 w-[1px] bg-slate-700 mx-1 hidden sm:block" aria-hidden />
              <div className="flex bg-[#1c1a2e] rounded-lg border border-slate-700/50 p-1">
-                <button className="p-1.5 text-slate-400 hover:text-white rounded"><List className="w-4 h-4" /></button>
-                <button className="p-1.5 bg-slate-700 text-white rounded shadow-sm"><Grid className="w-4 h-4" /></button>
+                <button className="p-2 text-slate-400 hover:text-white rounded touch-manipulation" aria-label="List view"><List className="w-4 h-4" /></button>
+                <button className="p-2 bg-slate-700 text-white rounded shadow-sm touch-manipulation" aria-label="Grid view"><Grid className="w-4 h-4" /></button>
              </div>
           </div>
         </div>
       </header>
 
-      {/* Grid */}
-      <main className="flex-1 overflow-y-auto p-8 z-10">
+      {/* Grid - responsive padding */}
+      <main className="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8 z-10 custom-scrollbar">
         {loading ? (
             <div className="flex justify-center items-center h-64 text-slate-500">
               <Loader2 className="w-6 h-6 animate-spin mr-2" />

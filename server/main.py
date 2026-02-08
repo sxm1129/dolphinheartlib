@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from server.db import init_db
 from server.queue import start as queue_start
-from server.routes import files, tasks, projects, uploads, models, shares, lyrics
+from server.routes import files, tasks, projects, uploads, models, shares, lyrics, auth
 
 app = FastAPI(title="HeartLib API", version="0.1.0")
 
@@ -23,6 +23,7 @@ app.include_router(uploads.router)
 app.include_router(models.router)
 app.include_router(shares.router)
 app.include_router(lyrics.router)
+app.include_router(auth.router)
 
 
 @app.on_event("startup")

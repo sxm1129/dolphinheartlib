@@ -8,6 +8,7 @@ import { ViewMode } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProjectProvider } from './contexts/ProjectContext';
 import { PageStateProvider } from './contexts/PageStateContext';
+import { AuthProvider } from './contexts/AuthContext';
 import { ToastProvider } from './components/Toast';
 
 // Simple path-based routing for share pages
@@ -20,7 +21,9 @@ const getShareIdFromPath = (): string | null => {
 const AppContent: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewMode>(ViewMode.LIBRARY);
   const [shareId, setShareId] = useState<string | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth >= 768 : true
+  );
 
   useEffect(() => {
     const id = getShareIdFromPath();
@@ -71,9 +74,11 @@ const App: React.FC = () => {
     <LanguageProvider>
       <ProjectProvider>
         <PageStateProvider>
-          <ToastProvider>
-            <AppContent />
-          </ToastProvider>
+          <AuthProvider>
+            <ToastProvider>
+              <AppContent />
+            </ToastProvider>
+          </AuthProvider>
         </PageStateProvider>
       </ProjectProvider>
     </LanguageProvider>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ViewMode } from '../types';
 import { 
   LayoutDashboard, 
@@ -7,11 +7,14 @@ import {
   Disc3,
   Mic,
   LogOut,
+  LogIn,
   Languages,
   PanelLeftClose,
   PanelLeft
 } from 'lucide-react';
 import { useTranslation } from '../contexts/LanguageContext';
+import { useAuth } from '../contexts/AuthContext';
+import LoginModal from './LoginModal';
 
 interface SidebarProps {
   currentView: ViewMode;
@@ -22,6 +25,8 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = true, onToggle }) => {
   const { t, language, setLanguage } = useTranslation();
+  const { user, logout, clearError } = useAuth();
+  const [showLoginModal, setShowLoginModal] = useState(false);
 
   const navItemClass = (active: boolean) =>
     active
@@ -36,6 +41,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = tru
   const itemBaseClass = 'flex items-center rounded-lg transition-all duration-200 cursor-pointer group border border-transparent';
 
   return (
+    <>
     <div className={`flex flex-col justify-between h-full ${iconOnly ? 'w-[4.5rem] p-2' : 'w-64 min-w-[16rem] p-4'}`}>
       <div className="flex flex-col gap-6">
         {/* Brand + collapse/expand */}
@@ -88,7 +94,7 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = tru
           </div>
 
           <div
-            className={`${itemBaseClass} opacity-60 cursor-not-allowed ${iconOnly ? 'p-2.5 justify-center' : 'gap-3 px-3 py-2.5'}`}
+            className={`hidden ${itemBaseClass} opacity-60 cursor-not-allowed ${iconOnly ? 'p-2.5 justify-center' : 'gap-3 px-3 py-2.5'}`}
             title={t('lib.comingSoon')}
           >
             <Heart className="w-5 h-5 flex-shrink-0" />
@@ -120,22 +126,41 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = tru
           )}
         </div>
 
-        <div className={`flex items-center rounded-lg hover:bg-white/5 cursor-pointer bg-slate-900/50 border border-slate-800 ${iconOnly ? 'p-2 justify-center' : 'gap-3 px-3 py-2'}`}>
-          <div className="size-8 rounded-full bg-slate-700 overflow-hidden border border-white/10 flex-shrink-0">
-            <img alt="User Avatar" className="w-full h-full object-cover" src="https://picsum.photos/100/100" />
-          </div>
-          {!iconOnly && (
-            <>
-              <div className="flex flex-col min-w-0">
-                <span className="text-white text-sm font-medium">Alex D.</span>
-                <span className="text-slate-500 text-xs">{t('user.pro')}</span>
-              </div>
-              <LogOut className="w-4 h-4 ml-auto text-slate-600 hover:text-white flex-shrink-0" />
-            </>
-          )}
-        </div>
+        {user ? (
+          <button
+            type="button"
+            onClick={() => logout()}
+            className={`flex items-center rounded-lg hover:bg-white/5 cursor-pointer bg-slate-900/50 border border-slate-800 w-full ${iconOnly ? 'p-2 justify-center' : 'gap-3 px-3 py-2'}`}
+            title={iconOnly ? t('nav.logout') || '退出' : undefined}
+          >
+            <div className="size-8 rounded-full bg-slate-700 overflow-hidden border border-white/10 flex-shrink-0 flex items-center justify-center text-white text-sm font-medium">
+              {(user.display_name || user.username).slice(0, 1).toUpperCase()}
+            </div>
+            {!iconOnly && (
+              <>
+                <div className="flex flex-col min-w-0 flex-1 text-left">
+                  <span className="text-white text-sm font-medium truncate">{user.display_name || user.username}</span>
+                  <span className="text-slate-500 text-xs">{user.plan}</span>
+                </div>
+                <LogOut className="w-4 h-4 shrink-0 text-slate-600 hover:text-white" />
+              </>
+            )}
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowLoginModal(true)}
+            className={`flex items-center rounded-lg hover:bg-white/5 cursor-pointer bg-slate-900/50 border border-slate-800 w-full ${iconOnly ? 'p-2 justify-center' : 'gap-3 px-3 py-2'}`}
+            title={iconOnly ? (t('nav.login') || '登录') : undefined}
+          >
+            <LogIn className="w-5 h-5 shrink-0 text-slate-400" />
+            {!iconOnly && <span className="text-sm font-medium text-slate-300">{t('nav.login') || '登录'}</span>}
+          </button>
+        )}
       </div>
     </div>
+    {showLoginModal && <LoginModal onClose={() => { setShowLoginModal(false); clearError(); }} />}
+    </>
   );
 };
 

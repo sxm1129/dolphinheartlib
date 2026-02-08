@@ -10,6 +10,8 @@ const translations = {
       transcribe: 'Transcribe',
       audioLab: 'Audio Lab',
       favorites: 'Favorites',
+      login: 'Login',
+      logout: 'Logout',
       settings: 'Settings',
     },
     user: {
@@ -151,6 +153,8 @@ const translations = {
       transcribe: '歌词转录',
       audioLab: '音频实验室',
       favorites: '收藏',
+      login: '登录',
+      logout: '退出',
       settings: '设置',
     },
     user: {

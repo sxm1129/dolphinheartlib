@@ -397,3 +397,73 @@ export const getShare = async (shareId: string): Promise<ShareDetailResponse> =>
 export const getShareAudioUrl = (taskId: string): string => {
   return `${API_BASE}/tasks/${taskId}/audio`;
 };
+
+// ==================== Auth API ====================
+
+const AUTH_TOKEN_KEY = 'heartlib_auth_token';
+
+export const getStoredToken = (): string | null => {
+  try {
+    return localStorage.getItem(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+};
+
+export const setStoredToken = (token: string | null): void => {
+  try {
+    if (token) localStorage.setItem(AUTH_TOKEN_KEY, token);
+    else localStorage.removeItem(AUTH_TOKEN_KEY);
+  } catch {}
+};
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  display_name: string;
+  plan: string;
+}
+
+export interface LoginResponse {
+  token: string;
+  user: AuthUser;
+}
+
+export const login = async (username: string, password: string): Promise<LoginResponse> => {
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(err.detail || 'Login failed');
+  }
+  return response.json();
+};
+
+export const getMe = async (): Promise<{ user: AuthUser }> => {
+  const token = getStoredToken();
+  if (!token) throw new Error('Not authenticated');
+  const response = await fetch(`${API_BASE}/auth/me`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!response.ok) {
+    setStoredToken(null);
+    throw new Error('Session expired');
+  }
+  return response.json();
+};
+
+export const logoutApi = async (): Promise<void> => {
+  const token = getStoredToken();
+  if (token) {
+    try {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+    } catch {}
+  }
+  setStoredToken(null);
+};

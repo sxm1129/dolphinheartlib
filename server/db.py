@@ -101,6 +101,29 @@ CREATE TABLE IF NOT EXISTS shares (
 )
 """
 
+# Users table for simple login
+CREATE_USERS_TABLE_MYSQL = """
+CREATE TABLE IF NOT EXISTS users (
+    id VARCHAR(36) PRIMARY KEY,
+    username VARCHAR(100) NOT NULL UNIQUE,
+    password_hash VARCHAR(128) NOT NULL,
+    display_name VARCHAR(200) DEFAULT '',
+    plan VARCHAR(50) DEFAULT 'Pro',
+    created_at VARCHAR(50) NOT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+"""
+
+CREATE_USERS_TABLE_SQLITE = """
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    display_name TEXT DEFAULT '',
+    plan TEXT DEFAULT 'Pro',
+    created_at TEXT NOT NULL
+)
+"""
+
 
 class MySQLConnection:
     """MySQL connection wrapper that mimics sqlite3.Connection interface."""
@@ -233,16 +256,78 @@ def _add_project_id_to_tasks() -> None:
             print(f"Warning: Could not add project_id to tasks: {e}")
 
 
+def _hash_password(password: str) -> str:
+    """Hash password with a fixed salt (simple auth)."""
+    import hashlib
+    salt = "heartlib"
+    return hashlib.sha256((salt + password).encode()).hexdigest()
+
+
+def _seed_admin_user() -> None:
+    """Insert default admin user if no users exist. Username: admin, Password: Admin123!"""
+    with get_connection() as conn:
+        cur = conn.execute("SELECT 1 FROM users LIMIT 1")
+        if cur.fetchone() is not None:
+            return
+        import uuid
+        from datetime import datetime
+        uid = str(uuid.uuid4())
+        now = datetime.utcnow().isoformat() + "Z"
+        password_hash = _hash_password("Admin123!")
+        if USE_MYSQL:
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, display_name, plan, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
+                (uid, "admin", password_hash, "Admin", "Pro", now),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO users (id, username, password_hash, display_name, plan, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+                (uid, "admin", password_hash, "Admin", "Pro", now),
+            )
+        conn.commit()
+        print("Default admin user created (username: admin).")
+
+
+def verify_user(username: str, password: str) -> Optional[dict]:
+    """Verify credentials and return user dict (id, username, display_name, plan) or None."""
+    h = _hash_password(password)
+    with get_connection() as conn:
+        if USE_MYSQL:
+            cur = conn.execute(
+                "SELECT id, username, display_name, plan FROM users WHERE username = %s AND password_hash = %s",
+                (username, h),
+            )
+        else:
+            cur = conn.execute(
+                "SELECT id, username, display_name, plan FROM users WHERE username = ? AND password_hash = ?",
+                (username, h),
+            )
+        row = cur.fetchone()
+    if not row:
+        return None
+    # row is dict (MySQL DictCursor) or sqlite3.Row
+    keys = row.keys() if hasattr(row, "keys") else ["id", "username", "display_name", "plan"]
+    d = {k: row[k] for k in keys}
+    return {
+        "id": d["id"],
+        "username": d["username"],
+        "display_name": d.get("display_name") or "",
+        "plan": d.get("plan") or "Pro",
+    }
+
+
 def init_db() -> None:
-    """Create tasks, projects, and shares tables if they do not exist."""
+    """Create tasks, projects, shares, and users tables if they do not exist."""
     if USE_MYSQL:
         _create_database_if_not_exists()
         with get_connection() as conn:
             conn.execute(CREATE_TASKS_TABLE_MYSQL)
             conn.execute(CREATE_PROJECTS_TABLE_MYSQL)
             conn.execute(CREATE_SHARES_TABLE_MYSQL)
+            conn.execute(CREATE_USERS_TABLE_MYSQL)
             conn.commit()
         _add_project_id_to_tasks()
+        _seed_admin_user()
         print("MySQL tables initialized.")
     else:
         ensure_output_dir()
@@ -250,6 +335,8 @@ def init_db() -> None:
             conn.execute(CREATE_TASKS_TABLE_SQLITE)
             conn.execute(CREATE_PROJECTS_TABLE_SQLITE)
             conn.execute(CREATE_SHARES_TABLE_SQLITE)
+            conn.execute(CREATE_USERS_TABLE_SQLITE)
             conn.commit()
         _add_project_id_to_tasks()
+        _seed_admin_user()
         print("SQLite tables initialized.")
