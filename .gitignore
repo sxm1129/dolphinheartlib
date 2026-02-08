@@ -65,3 +65,6 @@ frontend/*.local.*
 .env.*
 *.secret
 *.key
+
+./.server/backend.pid
+./.server/studio.pid

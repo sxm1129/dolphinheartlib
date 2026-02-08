@@ -9,6 +9,8 @@ import WaveformViz from '../components/WaveformViz';
 import { useTranslation } from '../contexts/LanguageContext';
 import { generateAudio, getTask, getAudioUrl, pollTaskStatus, TaskResponse, updateProject, getModelList, getTasks, getProject, uploadReferenceAudio, deleteUploadedFile, UploadResponse, createShare, getGpuInfo, GpuInfo, generateLyrics } from '../services/api';
 import { useProject } from '../contexts/ProjectContext';
+import { usePageStateSlice } from '../contexts/PageStateContext';
+import { ViewMode } from '../types';
 import { LyricsLanguage, LYRICS_LANGUAGES, getLyricsLanguagePreference, setLyricsLanguagePreference } from '../utils/lyricsPrompt';
 
 const GENRES = ['Electronic', 'Pop', 'Rock', 'Hip Hop', 'R&B', 'Country', 'Jazz', 'Metal', 'Folk', 'Ambient'];
@@ -25,26 +27,28 @@ const TAG_GROUPS: { group: string; tags: { label: string; value: string }[] }[] 
 const DEFAULT_MAX_AUDIO_LENGTH_MS = 240_000;
 const DEFAULT_CFG_SCALE = 1.5;
 
-const Studio: React.FC = () => {
-  const { t } = useTranslation();
-  const { currentProject, currentProjectId, setCurrentProject } = useProject();
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const currentProjectIdRef = useRef<string | null>(null);
-  const isMountedRef = useRef(true);
-  
-  const [lyrics, setLyrics] = useState(`[Intro]
+const DEFAULT_LYRICS = `[Intro]
 (Instrumental build-up)
 
 [Verse 1]
 Neon lights flickering in the rain
 Cybernetic dreams driving me insane
 I walk the streets of code and wire
-Burning with this digital desire...`);
+Burning with this digital desire...`;
+
+const Studio: React.FC = () => {
+  const { t } = useTranslation();
+  const { currentProject, currentProjectId, setCurrentProject } = useProject();
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const currentProjectIdRef = useRef<string | null>(null);
+  const isMountedRef = useRef(true);
+
+  const [lyrics, setLyrics] = usePageStateSlice(ViewMode.STUDIO, 'lyrics', DEFAULT_LYRICS, { persist: true });
+  const [tags, setTags] = usePageStateSlice(ViewMode.STUDIO, 'tags', 'warm,pop,Romantic,Piano', { persist: true });
 
   const [lyricPrompt, setLyricPrompt] = useState("");
   const [genre, setGenre] = useState("Electronic");
   const [mood, setMood] = useState("Dark");
-  const [tags, setTags] = useState('warm,pop,Romantic,Piano');
   const appendTag = (value: string) => {
     const v = value.trim();
     if (!v) return;

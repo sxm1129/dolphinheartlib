@@ -8,6 +8,7 @@ import Share from './pages/Share';
 import { ViewMode } from './types';
 import { LanguageProvider } from './contexts/LanguageContext';
 import { ProjectProvider } from './contexts/ProjectContext';
+import { PageStateProvider } from './contexts/PageStateContext';
 import { ToastProvider } from './components/Toast';
 
 // Simple path-based routing for share pages
@@ -31,20 +32,11 @@ const AppContent: React.FC = () => {
     return <Share shareId={shareId} />;
   }
 
-  const renderContent = () => {
-    switch (currentView) {
-      case ViewMode.LIBRARY:
-        return <Library setCurrentView={setCurrentView} />;
-      case ViewMode.STUDIO:
-        return <Studio />;
-      case ViewMode.TRANSCRIBE:
-        return <Transcribe />;
-      case ViewMode.AUDIO_LAB:
-        return <AudioLab />;
-      default:
-        return <Library setCurrentView={setCurrentView} />;
-    }
-  };
+  // Page state preservation (two layers):
+  // 1. Keep all main views mounted and only hide inactive ones (CSS). This preserves in-memory state when switching pages (lyrics, audio, form fields).
+  // 2. Pages can opt-in to usePageStateSlice(viewId, key, initial, { persist: true }) for sessionStorage so state survives page refresh (see PageStateContext).
+  const viewContainerClass = 'flex-1 flex flex-col h-full min-h-0 relative';
+  const hiddenClass = 'hidden';
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-background-dark text-slate-200 font-sans selection:bg-primary/30">
@@ -61,8 +53,19 @@ const AppContent: React.FC = () => {
           </div>
       )}
 
-      <div className="flex-1 flex flex-col h-full relative">
-        {renderContent()}
+      <div className="flex-1 flex flex-col h-full relative min-w-0">
+        <div className={currentView === ViewMode.LIBRARY ? viewContainerClass : hiddenClass}>
+          <Library setCurrentView={setCurrentView} />
+        </div>
+        <div className={currentView === ViewMode.STUDIO ? viewContainerClass : hiddenClass}>
+          <Studio />
+        </div>
+        <div className={currentView === ViewMode.TRANSCRIBE ? viewContainerClass : hiddenClass}>
+          <Transcribe />
+        </div>
+        <div className={currentView === ViewMode.AUDIO_LAB ? viewContainerClass : hiddenClass}>
+          <AudioLab />
+        </div>
       </div>
     </div>
   );
@@ -72,9 +75,11 @@ const App: React.FC = () => {
   return (
     <LanguageProvider>
       <ProjectProvider>
-        <ToastProvider>
-          <AppContent />
-        </ToastProvider>
+        <PageStateProvider>
+          <ToastProvider>
+            <AppContent />
+          </ToastProvider>
+        </PageStateProvider>
       </ProjectProvider>
     </LanguageProvider>
   );
