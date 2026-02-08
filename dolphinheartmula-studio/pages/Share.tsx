@@ -72,9 +72,15 @@ const Share: React.FC<ShareProps> = ({ shareId }) => {
   }
 
   if (error || !shareData) {
+    const isNetworkError = /failed to fetch|load failed|network error|网络错误/i.test(error || '');
     return (
-      <div className="min-h-screen bg-background-dark flex flex-col items-center justify-center gap-4">
-        <div className="text-red-400">{error || '分享不存在'}</div>
+      <div className="min-h-screen bg-background-dark flex flex-col items-center justify-center gap-4 px-4">
+        <div className="text-red-400 text-center">{error || '分享不存在'}</div>
+        {isNetworkError && (
+          <p className="text-slate-500 text-sm text-center max-w-md">
+            请确认：1) 前端已用 VITE_API_BASE 指向公网 API 后重新构建并部署；2) 后端 CORS 允许当前页面来源。
+          </p>
+        )}
         <a href="/" className="text-primary hover:underline flex items-center gap-2">
           <ArrowLeft className="w-4 h-4" /> 返回首页
         </a>
@@ -96,7 +102,7 @@ const Share: React.FC<ShareProps> = ({ shareId }) => {
               <Music className="w-4 h-4 text-white" />
             </div>
             <span className="font-display font-bold text-lg bg-gradient-to-r from-primary to-purple-400 bg-clip-text text-transparent">
-              HeartMula
+              DolphinHeartMula
             </span>
           </div>
           <div className="flex items-center gap-4 text-xs text-slate-500">
@@ -190,7 +196,7 @@ const Share: React.FC<ShareProps> = ({ shareId }) => {
       {/* Footer */}
       <footer className="border-t border-slate-800 py-8 mt-12">
         <div className="max-w-4xl mx-auto px-4 text-center text-slate-500 text-sm">
-          Powered by <span className="text-primary">HeartMula</span> AI Music Generation
+          Powered by <span className="text-primary">DolphinHeartMula</span> AI Music Generation
         </div>
       </footer>
     </div>
