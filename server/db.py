@@ -261,26 +261,31 @@ def _add_project_id_to_tasks() -> None:
 
 def _seed_admin_user() -> None:
     """Insert default admin user if no users exist. Username: admin, Password: Admin123!"""
+    from server.utils.auth import hash_password
+    import uuid
+    from datetime import datetime, timezone
+    admin_hash = hash_password("Admin123!")
     with get_connection() as conn:
         cur = conn.execute("SELECT 1 FROM users LIMIT 1")
         if cur.fetchone() is not None:
+            # Ensure admin password uses current hash (e.g. after switching from bcrypt to hashlib)
+            if USE_MYSQL:
+                conn.execute("UPDATE users SET password_hash = %s WHERE username = %s", (admin_hash, "admin"))
+            else:
+                conn.execute("UPDATE users SET password_hash = ? WHERE username = ?", (admin_hash, "admin"))
+            conn.commit()
             return
-        # Import bcrypt hash from auth utils
-        from server.utils.auth import hash_password
-        import uuid
-        from datetime import datetime, timezone
         uid = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
-        password_hash = hash_password("Admin123!")
         if USE_MYSQL:
             conn.execute(
                 "INSERT INTO users (id, username, password_hash, display_name, plan, created_at) VALUES (%s, %s, %s, %s, %s, %s)",
-                (uid, "admin", password_hash, "Admin", "Pro", now),
+                (uid, "admin", admin_hash, "Admin", "Pro", now),
             )
         else:
             conn.execute(
                 "INSERT INTO users (id, username, password_hash, display_name, plan, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (uid, "admin", password_hash, "Admin", "Pro", now),
+                (uid, "admin", admin_hash, "Admin", "Pro", now),
             )
         conn.commit()
         print("✅ Default admin user created (username: admin, password: Admin123!)")

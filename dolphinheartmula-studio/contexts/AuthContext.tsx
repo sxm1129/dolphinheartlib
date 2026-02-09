@@ -49,7 +49,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setStoredToken(data.token);
       setUser(data.user);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed');
+      const msg = err instanceof Error ? err.message : 'Login failed';
+      if (msg === 'Failed to fetch' || (err instanceof TypeError && err.message?.includes('fetch'))) {
+        setError('无法连接服务器，请确认后端已启动（如 uvicorn）且地址、端口正确');
+      } else {
+        setError(msg);
+      }
       throw err;
     }
   }, []);

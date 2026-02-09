@@ -10,6 +10,7 @@ BACKEND_PORT=10001
 PID_DIR="${ROOT}/.server"
 STUDIO_PID="${PID_DIR}/studio.pid"
 BACKEND_PID="${PID_DIR}/backend.pid"
+BACKEND_LOG="${PID_DIR}/backend.log"
 
 mkdir -p "$PID_DIR"
 
@@ -71,17 +72,19 @@ start_backend() {
   fi
   echo "Starting backend on port $BACKEND_PORT ..."
   cd "$ROOT"
+  export PYTHONPATH="${ROOT}:${PYTHONPATH:-}"
   if command -v conda &>/dev/null && conda env list | grep -q heartlib_env; then
-    conda run -n heartlib_env --no-capture-output uvicorn server.main:app --host 0.0.0.0 --port "$BACKEND_PORT" &
+    conda run -n heartlib_env --no-capture-output env PYTHONPATH="$ROOT" uvicorn server.main:app --host 0.0.0.0 --port "$BACKEND_PORT" >> "$BACKEND_LOG" 2>&1 &
   else
-    uvicorn server.main:app --host 0.0.0.0 --port "$BACKEND_PORT" &
+    (cd "$ROOT" && uvicorn server.main:app --host 0.0.0.0 --port "$BACKEND_PORT") >> "$BACKEND_LOG" 2>&1 &
   fi
   echo $! > "$BACKEND_PID"
-  sleep 2
+  sleep 3
   if port_in_use "$BACKEND_PORT" >/dev/null; then
-    echo "Backend started (port $BACKEND_PORT)"
+    echo "Backend started (port $BACKEND_PORT). Log: $BACKEND_LOG"
   else
-    echo "Backend may still be starting; check logs."
+    echo "Backend failed to start. See last 30 lines: tail -30 $BACKEND_LOG"
+    [ -f "$BACKEND_LOG" ] && tail -30 "$BACKEND_LOG"
   fi
 }
 

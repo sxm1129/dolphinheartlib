@@ -1,23 +1,22 @@
 """Authentication utilities: password hashing, JWT token generation/validation."""
+import hashlib
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import jwt
-from passlib.context import CryptContext
 
 from server.config import JWT_SECRET_KEY, JWT_ALGORITHM, JWT_EXPIRE_MINUTES
 
-# Password hashing context
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+_PASSWORD_SALT = "heartlib-auth"
 
 
 def hash_password(password: str) -> str:
-    """Hash a password using bcrypt."""
-    return pwd_context.hash(password)
+    """Hash a password using SHA256 with a fixed salt (no passlib/bcrypt dependency)."""
+    return hashlib.sha256((_PASSWORD_SALT + password).encode()).hexdigest()
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """Verify a password against its hash."""
-    return pwd_context.verify(plain_password, hashed_password)
+    return hashlib.sha256((_PASSWORD_SALT + plain_password).encode()).hexdigest() == hashed_password
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
