@@ -1,17 +1,19 @@
 import { Project } from '../types';
 
 // API Base URL - configure via environment variable or default to local (strip trailing slash to avoid double slashes).
-// When built without VITE_API_BASE, use same host as page with port 10001 so share pages work when deployed (e.g. 10000 -> 10001).
+// When built without VITE_API_BASE: same-origin /api when not on localhost (nginx proxies /api to backend); else host:10001/api for local dev.
 function getApiBase(): string {
   const envBase = import.meta.env.VITE_API_BASE;
   if (envBase) return envBase.replace(/\/+$/, '');
   if (typeof window !== 'undefined' && window.location?.hostname) {
     const { protocol, hostname } = window.location;
+    const isLocal = hostname === 'localhost' || hostname === '127.0.0.1';
+    if (!isLocal) return `${protocol}//${hostname}/api`;
     return `${protocol}//${hostname}:10001/api`;
   }
   return 'http://localhost:10001/api';
 }
-const API_BASE = getApiBase();
+export const API_BASE = getApiBase();
 
 // ==================== Project API ====================
 

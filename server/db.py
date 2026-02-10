@@ -260,11 +260,11 @@ def _add_project_id_to_tasks() -> None:
 
 
 def _seed_admin_user() -> None:
-    """Insert default admin user if no users exist. Username: admin, Password: Admin123!"""
+    """Insert default admin user if no users exist. Username: admin, Password: admin123!"""
     from server.utils.auth import hash_password
     import uuid
     from datetime import datetime, timezone
-    admin_hash = hash_password("Admin123!")
+    admin_hash = hash_password("admin123!")
     with get_connection() as conn:
         cur = conn.execute("SELECT 1 FROM users LIMIT 1")
         if cur.fetchone() is not None:
@@ -288,7 +288,7 @@ def _seed_admin_user() -> None:
                 (uid, "admin", admin_hash, "Admin", "Pro", now),
             )
         conn.commit()
-        print("✅ Default admin user created (username: admin, password: Admin123!)")
+        print("✅ Default admin user created (username: admin, password: admin123!)")
 
 
 

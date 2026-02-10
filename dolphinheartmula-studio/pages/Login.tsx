@@ -2,9 +2,10 @@ import React, { useState } from 'react';
 import { Music, LogIn, UserPlus, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTranslation } from '../contexts/LanguageContext';
+import { API_BASE } from '../services/api';
 
 const Login: React.FC = () => {
-  const { login, error, clearError } = useAuth();
+  const { login, error, setError, clearError } = useAuth();
   const { t } = useTranslation();
   const [isRegistering, setIsRegistering] = useState(false);
   const [username, setUsername] = useState('');
@@ -19,8 +20,8 @@ const Login: React.FC = () => {
 
     try {
       if (isRegistering) {
-        // Register API call
-        const response = await fetch('/api/auth/register', {
+        // Register API call (same base as login so domain/proxy works)
+        const response = await fetch(`${API_BASE}/auth/register`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username, password, display_name: displayName || username }),
@@ -38,6 +39,8 @@ const Login: React.FC = () => {
       }
     } catch (err) {
       console.error('Auth error:', err);
+      const msg = err instanceof Error ? err.message : (isRegistering ? '注册失败' : '登录失败');
+      setError(msg);
     } finally {
       setLoading(false);
     }

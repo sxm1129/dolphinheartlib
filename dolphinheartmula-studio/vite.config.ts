@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
       server: {
         port: 10000,
         host: '0.0.0.0',
+        allowedHosts: ['dolphinmusic.fusionxlink.com'],
       },
       plugins: [react()],
       define: {

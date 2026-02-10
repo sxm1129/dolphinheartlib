@@ -8,6 +8,7 @@ interface AuthContextValue {
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   error: string | null;
+  setError: (msg: string | null) => void;
   clearError: () => void;
 }
 
@@ -70,6 +71,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     login,
     logout,
     error,
+    setError,
     clearError,
   };
 
