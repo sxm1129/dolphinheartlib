@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
 import { ViewMode } from '../types';
-import { 
-  LayoutDashboard, 
-  Music, 
-  Heart, 
+import {
+  LayoutDashboard,
+  Music,
+  Heart,
   Disc3,
   Mic,
+  BookOpen,
   LogOut,
   LogIn,
   Languages,
@@ -88,6 +89,15 @@ const Sidebar: React.FC<SidebarProps> = ({ currentView, onChangeView, open = tru
           >
             <Mic className={`w-5 h-5 flex-shrink-0 ${currentView === ViewMode.TRANSCRIBE ? 'text-primary' : 'group-hover:text-primary'}`} />
             {!iconOnly && <span className="text-sm font-medium">{t('nav.transcribe')}</span>}
+          </div>
+
+          <div
+            className={`${itemBaseClass} ${navItemClass(currentView === ViewMode.GUIDE)} ${iconOnly ? 'p-2.5 justify-center' : 'gap-3 px-3 py-2.5'}`}
+            onClick={() => onChangeView(ViewMode.GUIDE)}
+            title={iconOnly ? t('nav.guide') : undefined}
+          >
+            <BookOpen className={`w-5 h-5 flex-shrink-0 ${currentView === ViewMode.GUIDE ? 'text-primary' : 'group-hover:text-primary'}`} />
+            {!iconOnly && <span className="text-sm font-medium">{t('nav.guide')}</span>}
           </div>
 
           <div

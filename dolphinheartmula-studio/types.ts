@@ -38,7 +38,8 @@ export enum ViewMode {
   LIBRARY = 'LIBRARY',
   STUDIO = 'STUDIO',
   TRANSCRIBE = 'TRANSCRIBE',
-  AUDIO_LAB = 'AUDIO_LAB'
+  AUDIO_LAB = 'AUDIO_LAB',
+  GUIDE = 'GUIDE'
 }
 
 // Task types from backend

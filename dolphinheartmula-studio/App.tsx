@@ -3,6 +3,7 @@ import Sidebar from './components/Sidebar';
 import Library from './pages/Library';
 import Studio from './pages/Studio';
 import Transcribe from './pages/Transcribe';
+import Guide from './pages/Guide';
 import Share from './pages/Share';
 import Login from './pages/Login';
 import { ViewMode } from './types';
@@ -79,6 +80,9 @@ const AppContent: React.FC = () => {
         </div>
         <div className={currentView === ViewMode.TRANSCRIBE ? viewContainerClass : hiddenClass}>
           <Transcribe />
+        </div>
+        <div className={currentView === ViewMode.GUIDE ? viewContainerClass : hiddenClass}>
+          <Guide />
         </div>
       </div>
     </div>
